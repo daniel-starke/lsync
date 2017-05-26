@@ -1,4 +1,4 @@
 version: 1.0.0.{build}
 
 build_script:
- - "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" && devenv "C:\projects\lsync\vs2010.sln" /Build Release
+ - cmd /c "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" && devenv "C:\projects\lsync\vs2010.sln" /Build Release
