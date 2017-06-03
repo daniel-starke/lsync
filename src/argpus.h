@@ -4,7 +4,7 @@
  * @see argp.h
  * @see ARGP_FUNC()
  * @date 2017-05-22
- * @version 2017-05-22
+ * @version 2017-05-28
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -48,7 +48,8 @@ typedef struct tArgPEUS {
  * All fields are expected to be set 0 on the initial state, except flags, shortOpts and longOpts.
  */
 typedef struct tArgPUS {
-	int i; /**< next argument list index */
+	int i; /**< next argument list index (may be changed by user) */
+	int nextI; /**< argument list index to next character to be parsed */
 	int lastOpt; /**< index to the previous option (for reordering) */
 	int opt; /**< erroneous option */
 	tArgPFlag flags; /**< see tArgPFlag */
