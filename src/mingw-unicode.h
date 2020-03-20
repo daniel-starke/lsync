@@ -2,7 +2,7 @@
  * @file mingw-unicode.h
  * @author Daniel Starke
  * @date 2013-02-16
- * @version 2016-10-22
+ * @version 2019-04-30
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -46,7 +46,7 @@
 #endif
 
 #ifdef __TINYC__
-int _CRT_glob;
+int _CRT_glob = 0;
 #else
 extern int _CRT_glob;
 #endif

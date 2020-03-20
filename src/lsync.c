@@ -2,7 +2,7 @@
  * @file lsync.c
  * @author Daniel Starke
  * @date 2017-05-17
- * @version 2017-05-25
+ * @version 2020-03-20
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -23,10 +23,10 @@
 
 #if defined(PCF_IS_WIN)
 #define PATH_SEPS _T("\\/")
-#include "lsync_win.c"
+#include "lsync-win.c"
 #elif defined(PCF_IS_LINUX)
 #define PATH_SEPS _T("/")
-#include "lsync_linux.c"
+#include "lsync-linux.c"
 #else
 #error "Unsupported target platform."
 #endif
@@ -41,6 +41,7 @@ volatile int signalReceived = 0;
 int _tmain(int argc, TCHAR ** argv) {
 	int res, i;
 	TCHAR * buffer = NULL;
+	char POSIXLY_CORRECT[] = "POSIXLY_CORRECT=";
 	tOptions opt = { 0 }; /* initialize all options with zero */
 	struct option longOptions[] = {
 		{_T("link-dest"), required_argument, NULL,           GETOPT_LINK_DEST},
@@ -60,7 +61,7 @@ int _tmain(int argc, TCHAR ** argv) {
 	};
 
 	/* ensure that the environment does not change the argument parser behavior */
-	putenv("POSIXLY_CORRECT=");
+	putenv(POSIXLY_CORRECT);
 	
 #ifdef UNICODE
 	/* http://msdn.microsoft.com/en-us/library/z0kc8e3z(v=vs.80).aspx */
@@ -84,7 +85,6 @@ int _tmain(int argc, TCHAR ** argv) {
 		case GETOPT_VERSION:
 			_putts(PROGRAM_VERSION);
 			return EXIT_SUCCESS;
-			break;
 		case _T('a'):
 			opt.devices   = 1;
 			opt.group     = 1;
@@ -108,21 +108,18 @@ int _tmain(int argc, TCHAR ** argv) {
 		case _T('h'):
 			printHelp();
 			return EXIT_SUCCESS;
-			break;
 		case _T(':'):
 			_ftprintf(stderr, _T("Error: Option argument is missing for '%s'.\n"), argv[optind - 1]);
 			return EXIT_FAILURE;
-			break;
 		case _T('?'):
 			if (_istprint(optopt) != 0) {
 				_ftprintf(stderr, _T("Error: Unknown or ambiguous option '-%c'.\n"), optopt);
 			} else if (optopt == 0) {
 				_ftprintf(stderr, _T("Error: Unknown or ambiguous option '%s'.\n"), argv[optind - 1]);
 			} else {
-				_ftprintf(stderr, _T("Error: Unknown option character '0x%0X'.\n"), (int)optopt);
+				_ftprintf(stderr, _T("Error: Unknown option character '0x%02X'.\n"), (int)optopt);
 			}
 			return EXIT_FAILURE;
-			break;
 		default:
 			abort();
 		}
@@ -183,7 +180,7 @@ int _tmain(int argc, TCHAR ** argv) {
 				goto onError;
 			}
 			/* process directory tree */
-			switch (td_traverse(argv[i], (opt.recursive == 0)? 0 : -1, TDO_DIRECTORY | TDO_ITEM, backupVisitor, &opt)) {
+			switch (td_traverse(argv[i], (opt.recursive == 0) ? 0 : -1, TDO_DIRECTORY | TDO_ITEM, backupVisitor, &opt)) {
 			case 1:
 				if (opt.verbose > 1) _ftprintf(stderr, _T("Finished backing up \"%s\".\n"), argv[i]);
 				break;

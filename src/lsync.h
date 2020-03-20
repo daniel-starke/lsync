@@ -2,7 +2,7 @@
  * @file lsync.h
  * @author Daniel Starke
  * @date 2017-05-17
- * @version 2017-06-03
+ * @version 2020-03-20
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -29,7 +29,7 @@
 #include "tchar.h"
 
 
-#define PROGRAM_VERSION _T("1.0.1 2017-06-03")
+#define PROGRAM_VERSION _T("1.0.4 2020-03-20")
 
 
 #define BUFFER_SIZE 32768

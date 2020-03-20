@@ -115,8 +115,8 @@ static BOOL setCurrentPrivilege(LPCTSTR privilege, BOOL bEnablePrivilege) {
  * @return 1 if src exists and is not a directory, else 0
  */
 int isFile(const TCHAR * src) {
-  DWORD dwAttrib = GetFileAttributes(src);
-  return (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY) == 0) ? 1 : 0;
+	DWORD dwAttrib = GetFileAttributes(src);
+	return (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY) == 0) ? 1 : 0;
 }
 
 
@@ -127,8 +127,8 @@ int isFile(const TCHAR * src) {
  * @return 1 if src is a directory, else 0
  */
 int isDirectory(const TCHAR * src) {
-  DWORD dwAttrib = GetFileAttributes(src);
-  return (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY) != 0) ? 1 : 0;
+	DWORD dwAttrib = GetFileAttributes(src);
+	return (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY) != 0) ? 1 : 0;
 }
 
 

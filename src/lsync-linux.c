@@ -2,7 +2,7 @@
  * @file lsync_linux.c
  * @author Daniel Starke
  * @date 2017-05-22
- * @version 2017-05-24
+ * @version 2020-03-20
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -99,8 +99,6 @@ int createDirectory(const TCHAR * dst, const int verbose) {
 	if (dst[1] == ':' && len < 4) return 1;
 	TCHAR * end = NULL; /* pointer to the end of the current path part */
 	TCHAR * dir = malloc(sizeof(TCHAR) * (len + 1));
-	memcpy(dir, dst, sizeof(TCHAR) * len);
-	dir[len] = 0;
 	if (dir == NULL) {
 		if (verbose > 0) {
 			fprintf(
@@ -111,6 +109,8 @@ int createDirectory(const TCHAR * dst, const int verbose) {
 		}
 		goto onError;
 	}
+	memcpy(dir, dst, sizeof(TCHAR) * len);
+	dir[len] = 0;
 	for (;;) {
 		if (end == NULL) {
 			if (*dir == '/') {
