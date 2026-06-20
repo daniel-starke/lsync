@@ -3,7 +3,7 @@
  * @author Daniel Starke
  * @see tdirs.h
  * @date 2012-12-15
- * @version 2026-06-18
+ * @version 2026-06-20
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -68,7 +68,7 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 	if (maxLevel >= 0 && curLevel > ((const unsigned int)maxLevel)) return 1;
 	myPath = (char *)malloc(sizeof(char) * (myPathLength + 1));
 	if (myPath == NULL) return -1;
-	snprintf(myPath, myPathLength + 1, "%s"PCF_PATH_SEP"*", path);
+	snprintf(myPath, myPathLength + 1, "%s" PCF_PATH_SEP "*", path);
 	if ((dp = FindFirstFileA(myPath, &item)) == INVALID_HANDLE_VALUE) result = -1;
 	while (result == 1) {
 		if (strcmp(item.cFileName, ".") != 0 && strcmp(item.cFileName, "..") != 0) {
@@ -82,7 +82,7 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 				if (path[pathLength - 1] == '\\' || path[pathLength - 1] == '/') {
 					needPathSize = snprintf(newPath, maxPath, "%s%s", path, item.cFileName);
 				} else {
-					needPathSize = snprintf(newPath, maxPath, "%s"PCF_PATH_SEP"%s", path, item.cFileName);
+					needPathSize = snprintf(newPath, maxPath, "%s" PCF_PATH_SEP "%s", path, item.cFileName);
 				}
 				if (needPathSize < 0 || ((size_t)needPathSize) >= maxPath) {
 					/* path did not fit -> grow buffer and retry */

@@ -2,7 +2,7 @@
  * @file target.h
  * @author Daniel Starke
  * @date 2012-12-08
- * @version 2017-05-23
+ * @version 2026-06-20
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -20,7 +20,9 @@
 #ifndef __LIBPCF_TARGET_H__
 #define __LIBPCF_TARGET_H__
 
+#include <stdarg.h>
 #include <stdint.h>
+#include <stdio.h>
 
 
 #ifdef __cplusplus
@@ -176,9 +178,13 @@ extern "C" {
 #ifdef _MSC_VER
 # define snprintf _snprintf
 # define snwprintf _snwprintf
-# define vsnprintf _vsnprintf
+# ifndef vsnprintf
+#  define vsnprintf _vsnprintf
+# endif
 # define vsnwprintf _vsnwprintf
-# define va_copy(dest, src) (dest = src)
+# ifndef va_copy
+#  define va_copy(dest, src) (dest = src)
+# endif
 #endif /* _MSC_VER */
 
 
