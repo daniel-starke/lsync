@@ -59,7 +59,7 @@ Building the program:
 
     make
 
-[![Linux GCC Build Status](https://img.shields.io/travis/daniel-starke/lsync/master.svg?label=Linux)](https://travis-ci.org/daniel-starke/lsync)
+[![Linux GCC Build Status](https://img.shields.io/github/actions/workflow/status/daniel-starke/lsync/build.yml?label=Linux)](https://github.com/daniel-starke/lsync/actions/workflows/build.yml)
 [![Windows Visual Studio Build Status](https://img.shields.io/appveyor/ci/danielstarke/lsync/master.svg?label=Windows)](https://ci.appveyor.com/project/danielstarke/lsync)    
 
 Files
@@ -69,6 +69,7 @@ Files
 |---------------|--------------------------------------------
 |*.mk           |Target specific Makefile setup.
 |argp*, getopt* |Command-line parser.
+|dirstack.*     |Generic directory stack for post-order processing.
 |lsync.*        |Main application files.
 |lsync-*        |Platform specific I/O functions.
 |mingw-unicode.h|Unicode enabled main() for MinGW targets.

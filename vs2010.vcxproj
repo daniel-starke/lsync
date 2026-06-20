@@ -181,6 +181,7 @@
   <ItemGroup>
     <ClCompile Include="src\argps.c" />
     <ClCompile Include="src\argpus.c" />
+    <ClCompile Include="src\dirstack.c" />
     <ClCompile Include="src\getopt.c" />
     <ClCompile Include="src\lsync.c" />
     <ClCompile Include="src\tchar.c" />
@@ -192,6 +193,7 @@
     <ClInclude Include="src\argp.i" />
     <ClInclude Include="src\argps.h" />
     <ClInclude Include="src\argpus.h" />
+    <ClInclude Include="src\dirstack.h" />
     <ClInclude Include="src\getopt.h" />
     <ClInclude Include="src\lsync.h" />
     <ClInclude Include="src\lsync_linux.c" />

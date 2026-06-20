@@ -4,6 +4,72 @@ M.N.P
 | +---- minor: increased if command-line syntax/semantic breaking changes were applied
 +------ major: increased if elementary changes (from user's point of view) were made
 
+2.0.0 (2026-06-20)
+ - added: independent -t/--times to preserve modification times without owner/group/perms
+ - added: single source file with non-directory destination copied to that path (like rsync)
+ - added: directory stack module dirstack
+ - changed: files copied via temp file and atomically renamed into place
+ - changed: use _FILE_OFFSET_BITS=64 for large file support on Linux
+ - changed: replaced Travis CI with GitHub Actions for Linux build
+ - changed: backup interrupted by signal exits with code 20 (like rsync)
+ - changed: renamed tOptions type to tContext
+ - fixed: failed read during copy reported as successful backup (silent data loss)
+ - fixed: Linux copy loop retries on EINTR instead of aborting
+ - fixed: hardlink, symlink, device and special file replace not atomic (data loss on re-run)
+ - fixed: re-running backup over existing fifo or dangling symlink could fail
+ - fixed: zero size symlinks (e.g. magic links under /proc) rejected instead of copied
+ - fixed: -l/--links did not enable symlink copying
+ - fixed: symlinks copied as their target or created at wrong path (Linux)
+ - fixed: Windows copied symlink as file holding target's content, not as link
+ - fixed: symlinked directories followed in traversal, not copied as link (cycle could crash)
+ - fixed: symlink to directory given as source followed instead of copied as link
+ - fixed: owner, permissions and times set on symlink's target, not the link (Linux/Windows)
+ - fixed: without --link-dest, files always re-copied instead of skipping unchanged ones
+ - fixed: --link-dest match (size+mtime) copied not hardlinked due to ctime check (Linux)
+ - fixed: source older than --link-dest ref but same size hardlinked instead of copied
+ - fixed: symlinks compared by their target, not the link itself, during --link-dest checks
+ - fixed: attributes written onto hardlinked file corrupted --link-dest reference snapshot
+ - fixed: failed attribute copies silently ignored, now reported (exit 23)
+ - fixed: Windows attribute copying never succeeded (security info result tested inverted)
+ - fixed: Windows -a/AT_ALL requested SACL, failing without admin and dropping requested fields
+ - fixed: Windows security descriptor larger than 4096 bytes aborted attribute copy
+ - fixed: Windows mtimes used sub-second precision, breaking --link-dest hardlinking
+ - fixed: directory timestamps overwritten because content written afterwards
+ - fixed: directory entries failing to read or stat dropped, now reported (Linux, exit 23)
+ - fixed: user abort during traversal could be masked by unrelated sibling subtree error
+ - fixed: single directory creation failure aborted whole backup instead of continuing (exit 23)
+ - fixed: backing up directory into itself or below recursed endlessly, now skipped (exit 23)
+ - fixed: destination type changes (directory <-> file) now reconciled like rsync
+ - fixed: subdirectories created in non-recursive mode instead of being skipped
+ - fixed: Linux directory read errors indistinguishable from end of directory
+ - fixed: sockets now use --specials (like rsync) not --devices (skipped specials reported)
+ - fixed: permission error while checking destination could silently skip needed copies
+ - fixed: directory traversal accessed index -1 if given empty path
+ - fixed: files in subdirectory not copied due to wrong destination path
+ - fixed: destination path with missing intermediate directories not fully created
+ - fixed: trailing separator on source produced empty path component (e.g. dst//file)
+ - fixed: "src/" stamped destination root's attributes, not left untouched (like rsync)
+ - fixed: Windows createDirectory() could crash on out of memory
+ - fixed: Windows createDirectory() failed on UNC, \\?\ and drive relative paths
+ - fixed: Linux createDirectory() wrongly accepted "a:b" paths
+ - fixed: Windows copy/hardlink capped at MAX_PATH (temp name now destination relative)
+ - fixed: Windows used create-then-delete temp name (copy race), now fail-closed
+ - fixed: Windows paths longer than 256 chars silently truncated and aborted traversal
+ - fixed: Windows error message formatting with insert sequence (e.g. %1) could crash
+ - fixed: paths printed with missing characters in new MinGW Unicode builds
+ - fixed: wide-character directory traversal mixed narrow separator length and wide buffer size
+ - fixed: signal handler avoids non-reentrant calls, async-signal-safe (Linux/Windows)
+ - fixed: options after operands ignored -> parser now re-orders them like GNU getopt
+ - fixed: POSIXLY_CORRECT now stops option parsing at first operand
+ - fixed: -g/--group and -D had no effect (Linux)
+ - fixed: --link-dest argument beginning with '-' rejected as missing argument
+ - fixed: -W argument parser read past argument list if -W was last argument
+ - fixed: argument parser took optional argument as separate word, not attached
+ - fixed: argument parser treated lone "-" as terminator instead of operand
+ - fixed: argument parser treated empty option argument ("--opt=") as missing instead of empty
+ - fixed: ambiguous long options reported by matched short value instead of by name
+ - fixed: several portability and minor robustness issues
+
 1.0.4 (2020-03-20)
  - fixed: possible invalid use of allocated memory in Linux version of createDirectory()
  - fixed: removed unreachable code in main()

@@ -4,7 +4,7 @@
  * @see argps.h
  * @see argpus.h
  * @date 2017-05-18
- * @version 2017-06-03
+ * @version 2026-06-20
  * @internal This file is never used or compiled directly but only included.
  * @remarks Define ARGP_UNICODE for the Unicode before including this file.
  * Defaults to ASCII.
@@ -50,6 +50,8 @@
 #ifdef ARGP_UNICODE
 #define CHAR_T wchar_t
 #define INT_T wchar_t
+#define PRCHAR "lc"
+#define PRTCHAR "ls"
 #ifndef TCHAR_STLEN
 #define TCHAR_STLEN wcslen
 #endif /* TCHAR_STLEN */
@@ -62,6 +64,8 @@
 #else /* ! ARGP_UNICODE */
 #define CHAR_T char
 #define INT_T int
+#define PRCHAR "c"
+#define PRTCHAR "s"
 #ifndef TCHAR_STLEN
 #define TCHAR_STLEN strlen
 #endif /* TCHAR_STLEN */
@@ -84,7 +88,7 @@
  * @return pointer to the end of the prefix (after '=') or NULL on mismatch
  */
 static const CHAR_T * matchPrefixStr(const CHAR_T * p, const CHAR_T * s) {
-	if (*p == 0 || *p != *s) return NULL;
+	if (p == NULL || *p == 0 || *p != *s) return NULL;
 	for (; *p == *s && *p != 0 && *p != '=' && *s != 0; p++, s++);
 	if (*p == '=') return ++p;
 	if (*p == 0) return p;
@@ -92,25 +96,43 @@ static const CHAR_T * matchPrefixStr(const CHAR_T * p, const CHAR_T * s) {
 }
 
 
-/**
- * Moves the last option to the front, just next to the previous last option.
- * Also updates the last option index.
- * 
- * @param[in,out] o - argument parser instance handle
- * @param[in] argc - number of argument list elements
- * @param[in] argv - argument list
- */
-static void moveOptToFront(ARGP_CTX * o, int argc, CHAR_T ** argv) {
-	int i = PCF_MAX(o->lastOpt, 1);
-	o->lastOpt = o->i;
-	if ((o->flags & ARGP_POSIXLY_CORRECT) != 0 || i >= argc) return;
-	for (; i > 1 && argv[i - 1][0] != '-'; i--) {
-		CHAR_T * tmp = argv[i - 1];
-		argv[i - 1] = argv[i];
-		argv[i] = tmp;
+/** Returns the greatest common divisor of a and b. */
+static int argpGcd(int a, int b) {
+	while (b != 0) {
+		const int t = a % b;
+		a = b;
+		b = t;
 	}
+	return a;
 }
 
+
+/**
+ * Swap block of non-option arguments with the following block of options.
+ *
+ * @param[in,out] o - argument parser instance handle
+ * @param[in] argv - argument list
+ */
+static void argpExchange(ARGP_CTX * o, CHAR_T ** argv) {
+	const int lo = o->firstNonOpt; /* first element of the rotated range */
+	const int n = o->i - lo; /* number of elements to rotate */
+	const int shift = o->lastNonOpt - lo; /* rotate left by the non-option count */
+	int c, cycles = argpGcd(shift, n);
+	for (c = 0; c < cycles; c++) {
+		CHAR_T * carry = argv[lo + c];
+		int j = c;
+		for (;;) {
+			int k = j + shift;
+			if (k >= n) k -= n;
+			if (k == c) break;
+			argv[lo + j] = argv[lo + k];
+			j = k;
+		}
+		argv[lo + j] = carry;
+	}
+	o->firstNonOpt += o->i - o->lastNonOpt;
+	o->lastNonOpt = o->i;
+}
 
 
 /* goto propagates only downwards the code */
@@ -139,9 +161,6 @@ int ARGP_FUNC(ARGP_CTX * o, int argc, CHAR_T * const * argv) {
 			o->state = APST_START;
 		} else {
 			/* assume the user wants to continue after an error */
-			if (o->next == NULL && o->state != APST_ERROR_NON_OPT) {
-				moveOptToFront(o, argc, (CHAR_T **)argv);
-			}
 			o->state = APST_NEXT;
 		}
 	}
@@ -153,6 +172,8 @@ int ARGP_FUNC(ARGP_CTX * o, int argc, CHAR_T * const * argv) {
 			/* re-initialize context */
 			o->i = 1;
 			o->lastOpt = 1;
+			o->firstNonOpt = 1;
+			o->lastNonOpt = 1;
 			o->arg = NULL;
 			o->next = NULL;
 			if (rescan != 0) {
@@ -185,6 +206,33 @@ onEndOfShortFlags:;
 				/* we can only reach this point if ARGP_SHORT was set */
 				o->state = APST_SHORT;
 			} else {
+				if ((o->flags & (ARGP_POSIXLY_CORRECT | ARGP_ARG_ONE)) == 0) {
+					/* order non-option arguments last */
+					if (o->lastNonOpt > o->i) o->lastNonOpt = o->i;
+					if (o->firstNonOpt > o->i) o->firstNonOpt = o->i;
+					if (o->firstNonOpt != o->lastNonOpt && o->lastNonOpt != o->i) {
+						argpExchange(o, (CHAR_T **)argv);
+					} else if (o->lastNonOpt != o->i) {
+						o->firstNonOpt = o->i;
+					}
+					while (o->i < argc && (argv[o->i][0] != '-' || argv[o->i][1] == 0)) (o->i)++;
+					o->lastNonOpt = o->i;
+					if (o->i < argc && argv[o->i][1] == '-' && argv[o->i][2] == 0) {
+						/* "--" terminates option processing */
+						(o->i)++;
+						if (o->firstNonOpt != o->lastNonOpt && o->lastNonOpt != o->i) {
+							argpExchange(o, (CHAR_T **)argv);
+						} else if (o->firstNonOpt == o->lastNonOpt) {
+							o->firstNonOpt = o->i;
+						}
+						o->lastNonOpt = argc;
+						o->i = argc;
+					}
+					if (o->i >= argc || argv[o->i] == NULL) {
+						o->state = APST_END;
+						break;
+					}
+				}
 				if (argv[o->i][0] == '-') {
 					if (argv[o->i][1] == '-') {
 						if (argv[o->i][2] != 0) {
@@ -200,8 +248,15 @@ onEndOfShortFlags:;
 							o->state = APST_ERROR_NON_OPT;
 						}
 					} else if (argv[o->i][1] == 0) {
-						o->i++;
-						o->state = APST_ERROR_NON_OPT;
+						/* single "-" is a non-option (already consumed in the scan above) */
+						if ((o->flags & ARGP_ARG_ONE) != 0) {
+							result = 1;
+							argType = required_argument;
+							o->arg = argv[o->i];
+							o->state = APST_ARG;
+						} else {
+							o->state = APST_END; /* POSIXLY_CORRECT stops here */
+						}
 					} else if ((o->flags & ARGP_SHORT) != 0) {
 						o->next = argv[o->i] + 1;
 						o->nextI = o->i;
@@ -213,18 +268,16 @@ onEndOfShortFlags:;
 						o->opt = argv[o->i][1];
 						o->state = APST_ERROR_INVALID_OPT;
 					}
-				} else if ((o->flags & ARGP_POSIXLY_CORRECT) == 0) {
-					if ((o->flags & ARGP_ARG_ONE) == 0) {
-						o->state = APST_ERROR_NON_OPT;
-					} else {
-						result = 1;
-						argType = required_argument;
-						o->arg = argv[o->i];
-						o->state = APST_ARG;
-					}
+				} else if ((o->flags & ARGP_ARG_ONE) != 0) {
+					/* return each non-option as the argument of option '\1' */
+					result = 1;
+					argType = required_argument;
+					o->arg = argv[o->i];
+					o->state = APST_ARG;
+				} else if ((o->flags & ARGP_POSIXLY_CORRECT) != 0) {
+					o->state = APST_END;
 				} else {
-					/* skip argument (NEXT -> NEXT) */
-					o->i++;
+					o->state = APST_ERROR_NON_OPT;
 				}
 			}
 			break;
@@ -235,19 +288,24 @@ onEndOfShortFlags:;
 				if (o->next[1] == '=') {
 					opt = o->next + 2;
 				} else if (o->next[1] == 0) {
-					moveOptToFront(o, argc, (CHAR_T **)argv);
+					o->lastOpt = o->i;
 					o->i++;
-					opt = argv[o->i];
+					opt = (o->i < argc) ? argv[o->i] : NULL;
 				} else if ((o->flags & ARGP_GNU_SHORT) != 0) {
 					opt = o->next + 1;
 				} else {
 					/* ignore remaining short options and treat next argument as option argument */
-					moveOptToFront(o, argc, (CHAR_T **)argv);
+					o->lastOpt = o->i;
 					o->i++;
-					opt = argv[o->i];
+					opt = (o->i < argc) ? argv[o->i] : NULL;
 				}
 				o->next = NULL;
-				o->state = APST_LONG;
+				if (opt == NULL) {
+					o->opt = 'W';
+					o->state = APST_ERROR_MISSING_ARG;
+				} else {
+					o->state = APST_LONG;
+				}
 			} else {
 				o->opt = o->next[0];
 				sopt = TCHAR_STCHR(o->shortOpts, o->opt);
@@ -280,7 +338,7 @@ onEndOfShortFlags:;
 						(o->next)++;
 						if (o->next[0] == 0 || o->next[0] == '=') {
 							o->next = NULL;
-							moveOptToFront(o, argc, (CHAR_T **)argv);
+							o->lastOpt = o->i;
 							o->i++;
 						}
 						o->state = APST_NEXT;
@@ -289,7 +347,8 @@ onEndOfShortFlags:;
 						if (o->next[1] == '=') {
 							o->arg = o->next + 2;
 						} else if (o->next[1] == 0) {
-							if ((o->i + 1) < argc) {
+							/* optional arguments must be attached, not separate */
+							if (argType == required_argument && (o->i + 1) < argc) {
 								o->arg = argv[o->i + 1];
 							} /* else: o->arg = NULL */
 						} else if ((o->flags & ARGP_GNU_SHORT) != 0) {
@@ -326,19 +385,20 @@ onEndOfShortFlags:;
 						result = 0;
 					}
 					argType = lopt->has_arg;
-					if (*sopt != 0) o->arg = sopt;
+					if (*sopt != 0 || sopt[-1] == '=') o->arg = sopt;
 					found = 1;
 				}
 			}
 			if (found == 1) {
 				if (argType == no_argument) {
-					moveOptToFront(o, argc, (CHAR_T **)argv);
+					o->lastOpt = o->i;
 					o->i++;
 					o->arg = NULL;
 					o->state = APST_NEXT;
 					return result;
 				} else {
-					if (o->arg == NULL && (o->i + 1) < argc) {
+					/* optional arguments must be attached with '=', not separate */
+					if (o->arg == NULL && argType == required_argument && (o->i + 1) < argc) {
 						o->arg = argv[o->i + 1];
 					}
 					o->state = APST_ARG;
@@ -351,13 +411,9 @@ onEndOfShortFlags:;
 			}
 			break;
 		case APST_ARG:
-			if (o->arg != NULL && o->arg[0] == '-' && o->arg[1] != 0) o->arg = NULL;
+			/* o->arg from attached value (optional) or attached/separate value (required) */
 			if (o->arg == NULL) {
-				if (argType != required_argument) {
-					moveOptToFront(o, argc, (CHAR_T **)argv);
-				} else {
-					o->lastOpt = o->i;
-				}
+				o->lastOpt = o->i;
 				o->i++;
 				if (argType == required_argument) {
 					o->state = APST_ERROR_MISSING_ARG;
@@ -368,7 +424,7 @@ onEndOfShortFlags:;
 			} else {
 				/* o->arg was only set for optional or required arguments */
 				o->next = NULL;
-				moveOptToFront(o, argc, (CHAR_T **)argv);
+				o->lastOpt = o->i;
 				if (argv[o->i + 1] == o->arg) o->i++;
 				o->i++;
 				o->state = APST_NEXT;
@@ -380,7 +436,15 @@ onEndOfShortFlags:;
 	} /* while (o->state < APST_END) */
 	switch (o->state) {
 	case APST_END:
-		if (o->i > o->lastOpt) moveOptToFront(o, argc, (CHAR_T **)argv);
+		/* move trailing options before the collected non-options */
+		if ((o->flags & (ARGP_POSIXLY_CORRECT | ARGP_ARG_ONE)) == 0) {
+			if (o->lastNonOpt > o->i) o->lastNonOpt = o->i;
+			if (o->firstNonOpt > o->i) o->firstNonOpt = o->i;
+			if (o->firstNonOpt != o->lastNonOpt && o->lastNonOpt != o->i) {
+				argpExchange(o, (CHAR_T **)argv);
+			}
+			if (o->firstNonOpt != o->lastNonOpt) o->i = o->firstNonOpt;
+		}
 		o->opt = 0;
 		o->longMatch = -1;
 		break;
@@ -391,9 +455,9 @@ onEndOfShortFlags:;
 		o->next = NULL;
 		if ((o->flags & ARGP_FORWARD_ERRORS) == 0) {
 			if (opt != NULL) {
-				TCHAR_ERROR("%s: option '%s' requires an argument\n", argv[0], argv[o->lastOpt]);
+				TCHAR_ERROR("%" PRTCHAR ": option '%" PRTCHAR "' requires an argument\n", argv[0], argv[o->lastOpt]);
 			} else {
-				TCHAR_ERROR("%s: option '-%c' requires an argument\n", argv[0], o->opt);
+				TCHAR_ERROR("%" PRTCHAR ": option '-%" PRCHAR "' requires an argument\n", argv[0], o->opt);
 			}
 		}
 		if ((o->flags & ARGP_FORWARD_ERRORS) != 0) return ':';
@@ -402,24 +466,25 @@ onEndOfShortFlags:;
 	case APST_ERROR_INVALID_OPT:
 		o->arg = NULL;
 		if (o->next == NULL) {
-			moveOptToFront(o, argc, (CHAR_T **)argv);
+			o->lastOpt = o->i;
 			o->i++;
 		}
 		if ((o->flags & ARGP_FORWARD_ERRORS) == 0) {
 			if (opt != NULL) {
-				TCHAR_ERROR("%s: unrecognized option '%s'\n", argv[0], argv[o->lastOpt]);
+				TCHAR_ERROR("%" PRTCHAR ": unrecognized option '%" PRTCHAR "'\n", argv[0], argv[o->lastOpt]);
 			} else {
-				TCHAR_ERROR("%s: unrecognized option '-%c'\n", argv[0], o->opt);
+				TCHAR_ERROR("%" PRTCHAR ": unrecognized option '-%" PRCHAR "'\n", argv[0], o->opt);
 			}
 		}
 		return '?';
 		break;
 	case APST_ERROR_AMBIGUOUS:
 		o->arg = NULL;
-		moveOptToFront(o, argc, (CHAR_T **)argv);
+		o->opt = 0;
+		o->lastOpt = o->i;
 		o->i++;
 		if ((o->flags & ARGP_FORWARD_ERRORS) == 0) {
-			TCHAR_ERROR("%s: option '%s' is ambiguous\n", argv[0], argv[o->lastOpt]);
+			TCHAR_ERROR("%" PRTCHAR ": option '%" PRTCHAR "' is ambiguous\n", argv[0], argv[o->lastOpt]);
 		}
 		return '?';
 		break;

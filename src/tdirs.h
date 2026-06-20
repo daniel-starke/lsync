@@ -3,7 +3,7 @@
  * @author Daniel Starke
  * @see tdirs.c
  * @date 2012-12-15
- * @version 2016-05-01
+ * @version 2026-06-16
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -30,6 +30,16 @@ extern "C" {
 
 
 /**
+ * Flags passed to TraverseDirVisitorS() by tds_traverse().
+ */
+typedef enum tTdsFlag {
+	TDSF_FILE = 0,
+	TDSF_DIR = 1,
+	TDSF_ERROR = TDSF_DIR << 1
+} tTdsFlag;
+
+
+/**
  * Defines the callback function for directory traversing.
  * It is recommended to make the callback function inline
  * for speed increase. The path, item and ext parameter share
@@ -37,15 +47,21 @@ extern "C" {
  * possible.
  * <br><br>Expample:<pre>
  * inline int processDir(const char * path, const char * item, const char * ext,
- *  const int isDir, const unsigned int level, void * param) {
- *  if (isDir != 0) {
- *   printf("%u:%.*s: %s (DIR)\n", level, item - path, path, item);
- *  } else {
+ *  const int flags, const unsigned int level, void * param) {
+ *  switch (flags) {
+ *  case TDSF_FILE:
  *   if (*ext != 0) {
- *    printf("%u:%.*s: %s (%s)\n", level, item - path, path, item, ext);
+ *    printf("%u:%.*s: %s (%s)\n", level, (int)(item - path), path, item, ext);
  *   } else {
- *    printf("%u:%.*s: %s\n", level, item - path, path, item);
+ *    printf("%u:%.*s: %s\n", level, (int)(item - path), path, item);
  *   }
+ *   break;
+ *  case TDSF_DIR:
+ *   printf("%u:%.*s: %s (DIR)\n", level, (int)(item - path), path, item);
+ *   break;
+ *  default:
+ *   printf("%u:%.*s: %s (ERROR)\n", level, (int)(item - path), path, item);
+ *   break;
  *  }
  *  return 1;
  * }
@@ -54,14 +70,14 @@ extern "C" {
  * @param[in] path - full path
  * @param[in] item - item name
  * @param[in] ext - file extension
- * @param[in] isDir - 0 if not a directory, else 1
+ * @param[in] flags - item flags
  * @param[in] level - path depth calculated from the base path
  * @param[in,out] param - user defined parameter
  * @return 0 to abort
  * @return 1 to continue
  */
-typedef int (* TraverseDirVisitorS)(const char * path, const char * item, const char * ext, const int isDir,
-	const unsigned int level, void * param);
+typedef int (* TraverseDirVisitorS)(const char * path, const char * item, const char * ext,
+	const int flags, const unsigned int level, void * param);
 
 
 /**
@@ -72,7 +88,8 @@ typedef enum tTdsOption {
 	TDSO_DIRECTORY = 1,
 	TDSO_ITEM = TDSO_DIRECTORY << 1,
 	TDSO_FOLLOW_LINKS = TDSO_ITEM << 1,
-	TDSO_ALL = TDSO_DIRECTORY | TDSO_ITEM | TDSO_FOLLOW_LINKS
+	TDSO_ERRORS = TDSO_FOLLOW_LINKS << 1,
+	TDSO_ALL = TDSO_DIRECTORY | TDSO_ITEM | TDSO_FOLLOW_LINKS | TDSO_ERRORS
 } tTdsOption;
 
 

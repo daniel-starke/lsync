@@ -2,7 +2,7 @@
  * @file mingw-unicode.h
  * @author Daniel Starke
  * @date 2013-02-16
- * @version 2019-04-30
+ * @version 2024-04-13
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -53,8 +53,10 @@ extern int _CRT_glob;
 extern void __wgetmainargs(int *, wchar_t ***, wchar_t ***, int, int *);
 
 #ifdef MAIN_USE_ENVP
+__attribute__((externally_visible))
 int wmain(int argc, wchar_t * argv[], wchar_t * envp[]);
 #else
+__attribute__((externally_visible))
 int wmain(int argc, wchar_t * argv[]);
 #endif
 

@@ -4,6 +4,7 @@ CC = $(PREFIX)gcc
 SRC = \
   src/argps.c \
   src/argpus.c \
+  src/dirstack.c \
   src/getopt.c \
   src/lsync.c \
   src/tchar.c \

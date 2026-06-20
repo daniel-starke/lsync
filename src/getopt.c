@@ -3,7 +3,7 @@
  * @author Daniel Starke
  * @see getopt.h
  * @date 2017-05-22
- * @version 2017-05-25
+ * @version 2025-06-14
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -44,7 +44,7 @@ static int argps_internalGetopt(int argc, char * const argv[], const char * opts
 int argps_getopt(int argc, char * const argv[], const char * optstring) {
 	argps_ctx.flags = (tArgPFlag)(
 		(size_t)(argps_ctx.flags | ARGP_SHORT | ARGP_GNU_SHORT | ((argps_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
-		& (size_t)(ARGP_LONG)
+		& (size_t)(~ARGP_LONG)
 	);
 	return argps_internalGetopt(argc, argv, optstring, NULL, NULL);
 }
@@ -59,7 +59,7 @@ int argps_getoptLong(int argc, char * const argv[], const char * optstring, cons
 int argps_getoptLongOnly(int argc, char * const argv[], const char * optstring, const tArgPES * longopts, int * longindex) {
 	argps_ctx.flags = (tArgPFlag)(
 		(size_t)(argps_ctx.flags | ARGP_LONG | ((argps_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
-		& (size_t)(ARGP_SHORT)
+		& (size_t)(~ARGP_SHORT)
 	);
 	return argps_internalGetopt(argc, argv, optstring, longopts, longindex);
 }
@@ -87,23 +87,23 @@ static int argpus_internalGetopt(int argc, wchar_t * const argv[], const wchar_t
 
 int argpus_getopt(int argc, wchar_t * const argv[], const wchar_t * optstring) {
 	argpus_ctx.flags = (tArgPFlag)(
-		(size_t)(argps_ctx.flags | ARGP_SHORT | ARGP_GNU_SHORT | ((argps_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
-		& (size_t)(ARGP_LONG)
+		(size_t)(argpus_ctx.flags | ARGP_SHORT | ARGP_GNU_SHORT | ((argpus_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
+		& (size_t)(~ARGP_LONG)
 	);
 	return argpus_internalGetopt(argc, argv, optstring, NULL, NULL);
 }
 
 
 int argpus_getoptLong(int argc, wchar_t * const argv[], const wchar_t * optstring, const tArgPEUS * longopts, int * longindex) {
-	argpus_ctx.flags = (tArgPFlag)(argps_ctx.flags | ARGP_SHORT | ARGP_LONG | ARGP_GNU_SHORT | ((argps_opterr == 0) ? ARGP_FORWARD_ERRORS : 0));
+	argpus_ctx.flags = (tArgPFlag)(argpus_ctx.flags | ARGP_SHORT | ARGP_LONG | ARGP_GNU_SHORT | ((argpus_opterr == 0) ? ARGP_FORWARD_ERRORS : 0));
 	return argpus_internalGetopt(argc, argv, optstring, longopts, longindex);
 }
 
 
 int argpus_getoptLongOnly(int argc, wchar_t * const argv[], const wchar_t * optstring, const tArgPEUS * longopts, int * longindex) {
 	argpus_ctx.flags = (tArgPFlag)(
-		(size_t)(argps_ctx.flags | ARGP_LONG | ((argps_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
-		& (size_t)(ARGP_SHORT)
+		(size_t)(argpus_ctx.flags | ARGP_LONG | ((argpus_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
+		& (size_t)(~ARGP_SHORT)
 	);
 	return argpus_internalGetopt(argc, argv, optstring, longopts, longindex);
 }

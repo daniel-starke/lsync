@@ -3,7 +3,7 @@
  * @author Daniel Starke
  * @see tdirus.h
  * @date 2012-12-16
- * @version 2017-05-23
+ * @version 2026-06-18
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -56,16 +56,16 @@ static int tdus_traverseR(const wchar_t * path, const int maxLevel, const unsign
 	HANDLE dp = INVALID_HANDLE_VALUE;
 	WIN32_FIND_DATAW item;
 	const size_t pathLength = wcslen(path);
-	const size_t myPathLength = pathLength + strlen(PCF_PATH_SEP) + 1;
+	const size_t myPathLength = pathLength + wcslen(PCF_PATH_SEPU) + 1;
 	wchar_t * newPath = NULL;
 	size_t maxPath = 256;
 	int needPathSize;
-	int result = 1;
+	int result = 1, subResult = 1;
 	wchar_t * myPath = NULL;
+	if (maxLevel >= 0 && curLevel > ((const unsigned int)maxLevel)) return 1;
 	myPath = (wchar_t *)malloc(sizeof(wchar_t) * (myPathLength + 1));
 	if (myPath == NULL) return -1;
 	snwprintf(myPath, myPathLength + 1, L"%ls" PCF_PATH_SEPU L"*", path);
-	if (maxLevel >= 0 && curLevel > ((const unsigned int)maxLevel)) return 1;
 	if ((dp = FindFirstFileW(myPath, &item)) == INVALID_HANDLE_VALUE) result = -1;
 	while (result == 1) {
 		if (wcscmp(item.cFileName, L".") != 0 && wcscmp(item.cFileName, L"..") != 0) {
@@ -81,20 +81,19 @@ static int tdus_traverseR(const wchar_t * path, const int maxLevel, const unsign
 				} else {
 					needPathSize = snwprintf(newPath, maxPath, L"%ls" PCF_PATH_SEPU L"%ls", path, item.cFileName);
 				}
-				if (needPathSize < 1) {
-					result = -1;
-					break;
-				}
-				if (((size_t)needPathSize) >= maxPath) {
-					/* provided path string was too short -> increase its size to fit */
-					maxPath = ((size_t)needPathSize) + PATH_LENGTH_GROWTH + 1;
-					free(newPath);
-					newPath = NULL;
-					if (maxPath == 0) {
-						/* number overflow (most unlikely) */
+				if (needPathSize < 0 || ((size_t)needPathSize) >= maxPath) {
+					/* path did not fit -> grow buffer and retry */
+					if (needPathSize < 0) {
+						maxPath += PATH_LENGTH_GROWTH;
+					} else if (((size_t)needPathSize) > (SIZE_MAX - (PATH_LENGTH_GROWTH + 1))) {
+						/* addition would overflow (most unlikely) */
 						result = -1;
 						break;
+					} else {
+						maxPath = ((size_t)needPathSize) + PATH_LENGTH_GROWTH + 1;
 					}
+					free(newPath);
+					newPath = NULL;
 				}
 			} while (newPath == NULL);
 			if (result == 1) {
@@ -106,7 +105,7 @@ static int tdus_traverseR(const wchar_t * path, const int maxLevel, const unsign
 				if ((item.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0){
 					/* directory */
 					if ((options & TDUSO_DIRECTORY) != 0) {
-						if ((*visitor)(newPath, itemName, itemExt, 1, curLevel, param) == 0) {
+						if ((*visitor)(newPath, itemName, itemExt, TDSUF_DIR, curLevel, param) == 0) {
 							result = 0;
 						}
 					}
@@ -114,12 +113,19 @@ static int tdus_traverseR(const wchar_t * path, const int maxLevel, const unsign
 						switch (tdus_traverseR(newPath, maxLevel, curLevel + 1, options, visitor, param)) {
 						case 0: result = 0; break;
 						case 1: break;
-						default: result = -1; break;
+						default:
+							if ((options & TDUSO_ERRORS) != 0) {
+								if ((*visitor)(newPath, itemName, itemExt, TDSUF_DIR | TDSUF_ERROR, curLevel, param) == 0) {
+									result = 0;
+								}
+							}
+							subResult = -1;
+							break;
 						}
 					}
 				} else if ((options & TDUSO_ITEM) != 0) {
 					/* normal item */
-					if ((*visitor)(newPath, itemName, itemExt, 0, curLevel, param) == 0) {
+					if ((*visitor)(newPath, itemName, itemExt, TDSUF_FILE, curLevel, param) == 0) {
 						result = 0;
 					}
 				}
@@ -133,6 +139,8 @@ static int tdus_traverseR(const wchar_t * path, const int maxLevel, const unsign
 	if (dp != INVALID_HANDLE_VALUE) FindClose(dp);
 	if (newPath != NULL) free(newPath);
 	if (myPath != NULL) free(myPath);
+	if (result == 0) return 0;
+	if (subResult != 1) return subResult;
 	return result;
 #else /* PCF_IS_NO_WIN */
 #warning "Wide char directory listing is only supported for Windows."
@@ -159,10 +167,9 @@ static int tdus_traverseR(const wchar_t * path, const int maxLevel, const unsign
  * @return 1 on success, 0 on user abort, -1 on error
  */
 int tdus_traverse(const wchar_t * path, const int maxLevel, const int options, TraverseDirVisitorUS visitor, void * param) {
-	int cleanOptions = options & TDUSO_ALL;
+	const int cleanOptions = options & TDUSO_ALL;
 	if (cleanOptions == 0) return -1;
-	if (path == NULL) return -1;
+	if (path == NULL || *path == 0) return -1;
 	if (visitor == NULL) return -1;
 	return tdus_traverseR(path, maxLevel, 0, cleanOptions, visitor, param);
-	
 }

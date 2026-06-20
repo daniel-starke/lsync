@@ -2,7 +2,7 @@
  * @file tchar.h
  * @author Daniel Starke
  * @date 2014-05-04
- * @version 2017-05-25
+ * @version 2026-06-17
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -43,6 +43,7 @@ typedef wchar_t TCHAR;
 #define _tcslen wcslen
 #define _tcscmp wcscmp
 #define _tcsncmp wcsncmp
+#define _tcsnicmp _wcsnicmp
 #define _tcsrchr wcsrchr
 #define _tcspbrk wcspbrk
 #define _tcschr wcschr
@@ -68,6 +69,11 @@ typedef char TCHAR;
 #define _tcslen strlen
 #define _tcscmp strcmp
 #define _tcsncmp strncmp
+#if defined(__MINGW32__) || defined(_MSC_VER)
+#define _tcsnicmp _strnicmp
+#else
+#define _tcsnicmp strncasecmp
+#endif
 #define _tcsrchr strrchr
 #define _tcspbrk strpbrk
 #define _tcschr strchr

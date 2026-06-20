@@ -3,7 +3,7 @@
  * @author Daniel Starke
  * @see tdirs.h
  * @date 2012-12-15
- * @version 2017-05-23
+ * @version 2026-06-18
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -18,6 +18,7 @@
  * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
  * OTHER DEALINGS IN THE SOFTWARE.
  */
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -62,12 +63,12 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 	char * newPath = NULL;
 	size_t maxPath = 256;
 	int needPathSize;
-	int result = 1;
+	int result = 1, subResult = 1;
 	char * myPath = NULL;
+	if (maxLevel >= 0 && curLevel > ((const unsigned int)maxLevel)) return 1;
 	myPath = (char *)malloc(sizeof(char) * (myPathLength + 1));
 	if (myPath == NULL) return -1;
 	snprintf(myPath, myPathLength + 1, "%s"PCF_PATH_SEP"*", path);
-	if (maxLevel >= 0 && curLevel > ((const unsigned int)maxLevel)) return 1;
 	if ((dp = FindFirstFileA(myPath, &item)) == INVALID_HANDLE_VALUE) result = -1;
 	while (result == 1) {
 		if (strcmp(item.cFileName, ".") != 0 && strcmp(item.cFileName, "..") != 0) {
@@ -83,20 +84,19 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 				} else {
 					needPathSize = snprintf(newPath, maxPath, "%s"PCF_PATH_SEP"%s", path, item.cFileName);
 				}
-				if (needPathSize < 1) {
-					result = -1;
-					break;
-				}
-				if (((size_t)needPathSize) >= maxPath) {
-					/* provided path string was too short -> increase its size to fit */
-					maxPath = ((size_t)needPathSize) + PATH_LENGTH_GROWTH + 1;
-					free(newPath);
-					newPath = NULL;
-					if (maxPath == 0) {
+				if (needPathSize < 0 || ((size_t)needPathSize) >= maxPath) {
+					/* path did not fit -> grow buffer and retry */
+					if (needPathSize < 0) {
+						maxPath += PATH_LENGTH_GROWTH;
+					} else if (((size_t)needPathSize) > (SIZE_MAX - (PATH_LENGTH_GROWTH + 1))) {
 						/* number overflow (most unlikely) */
 						result = -1;
 						break;
+					} else {
+						maxPath = ((size_t)needPathSize) + PATH_LENGTH_GROWTH + 1;
 					}
+					free(newPath);
+					newPath = NULL;
 				}
 			} while (newPath == NULL);
 			if (result == 1) {
@@ -108,7 +108,7 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 				if ((item.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0){
 					/* directory */
 					if ((options & TDSO_DIRECTORY) != 0) {
-						if ((*visitor)(newPath, itemName, itemExt, 1, curLevel, param) == 0) {
+						if ((*visitor)(newPath, itemName, itemExt, TDSF_DIR, curLevel, param) == 0) {
 							result = 0;
 						}
 					}
@@ -116,12 +116,19 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 						switch (tds_traverseR(newPath, maxLevel, curLevel + 1, options, visitor, param)) {
 						case 0: result = 0; break;
 						case 1: break;
-						default: result = -1;
+						default:
+							if ((options & TDSO_ERRORS) != 0) {
+								if ((*visitor)(newPath, itemName, itemExt, TDSF_DIR | TDSF_ERROR, curLevel, param) == 0) {
+									result = 0;
+								}
+							}
+							subResult = -1;
+							break;
 						}
 					}
 				} else if ((options & TDSO_ITEM) != 0) {
 					/* normal item */
-					if ((*visitor)(newPath, itemName, itemExt, 0, curLevel, param) == 0) {
+					if ((*visitor)(newPath, itemName, itemExt, TDSF_FILE, curLevel, param) == 0) {
 						result = 0;
 					}
 				}
@@ -135,6 +142,8 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 	if (dp != INVALID_HANDLE_VALUE) FindClose(dp);
 	if (newPath != NULL) free(newPath);
 	if (myPath != NULL) free(myPath);
+	if (result == 0) return 0;
+	if (subResult != 1) return subResult;
 	return result;
 #else /* PCF_IS_NO_WIN */
 	DIR * dp = NULL;
@@ -144,10 +153,17 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 	char * newPath = NULL;
 	size_t maxPath = 256;
 	int needPathSize;
-	int result = 1;
+	int result = 1, subResult = 1;
 	if (maxLevel >= 0 && curLevel > ((const unsigned int)maxLevel)) return 1;
 	if ((dp = opendir(path)) == NULL) result = -1;
-	while (result == 1 && (item = readdir(dp)) != NULL) {
+	while (result == 1) {
+		errno = 0;
+		item = readdir(dp);
+		if (item == NULL) {
+			/* real error or end of list? */
+			if (errno != 0) result = -1;
+			break;
+		}
 		if (strcmp(item->d_name, ".") == 0 || strcmp(item->d_name, "..") == 0) continue;
 		do {
 			if (newPath == NULL) {
@@ -161,33 +177,39 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 			} else {
 				needPathSize = snprintf(newPath, maxPath, "%s"PCF_PATH_SEP"%s", path, item->d_name);
 			}
-			if (needPathSize < 1) {
-				result = -1;
-				break;
-			}
-			if (((size_t)needPathSize) >= maxPath) {
-				/* provided path string was too short -> increase its size to fit */
-				maxPath = ((size_t)needPathSize) + PATH_LENGTH_GROWTH + 1;
-				free(newPath);
-				newPath = NULL;
-				if (maxPath == 0) {
+			if (needPathSize < 0 || ((size_t)needPathSize) >= maxPath) {
+				/* error or path did not fit -> grow buffer and retry */
+				if (needPathSize < 0) {
+					maxPath += PATH_LENGTH_GROWTH;
+				} else if (((size_t)needPathSize) > SIZE_MAX - (PATH_LENGTH_GROWTH + 1)) {
 					/* number overflow (most unlikely) */
 					result = -1;
 					break;
+				} else {
+					maxPath = ((size_t)needPathSize) + PATH_LENGTH_GROWTH + 1;
 				}
+				free(newPath);
+				newPath = NULL;
 			}
 		} while (newPath == NULL);
-		stat(newPath, &itemStat);
 		if (result == 1) {
 			const char * itemName = newPath + strlen(newPath) - strlen(item->d_name);
 			const char * itemExt = strrchr(itemName, '.');
 			if (itemExt == NULL) {
 				itemExt = itemName + strlen(item->d_name);
 			}
+			if (lstat(newPath, &itemStat) != 0) {
+				if ((options & TDSO_ERRORS) != 0) {
+					if ((*visitor)(newPath, itemName, itemExt, TDSF_FILE | TDSF_ERROR, curLevel, param) == 0) {
+						result = 0;
+					}
+				}
+				continue;
+			}
 			if ( S_ISDIR(itemStat.st_mode) ){
 				/* directory */
 				if ((options & TDSO_DIRECTORY) != 0) {
-					if ((*visitor)(newPath, itemName, itemExt, 1, curLevel, param) == 0) {
+					if ((*visitor)(newPath, itemName, itemExt, TDSF_DIR, curLevel, param) == 0) {
 						result = 0;
 					}
 				}
@@ -197,14 +219,21 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 					switch (tds_traverseR(newPath, maxLevel, curLevel + 1, options, visitor, param)) {
 					case 0: result = 0; break;
 					case 1: break;
-					default: result = -1; break;
+					default:
+						if ((options & TDSO_ERRORS) != 0) {
+							if ((*visitor)(newPath, itemName, itemExt, TDSF_DIR | TDSF_ERROR, curLevel, param) == 0) {
+								result = 0;
+							}
+						}
+						subResult = -1;
+						break;
 					}
 #ifdef S_ISLNK
 				}
 #endif
 			} else if ((options & TDSO_ITEM) != 0) {
 				/* normal item */
-				if ((*visitor)(newPath, itemName, itemExt, 0, curLevel, param) == 0) {
+				if ((*visitor)(newPath, itemName, itemExt, TDSF_FILE, curLevel, param) == 0) {
 					result = 0;
 				}
 			}
@@ -212,6 +241,8 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
 	}
 	if (dp != NULL) closedir(dp);
 	if (newPath != NULL) free(newPath);
+	if (result == 0) return 0;
+	if (subResult != 1) return subResult;
 	return result;
 #endif /* PCF_IS_WIN */
 }
@@ -229,10 +260,9 @@ static int tds_traverseR(const char * path, const int maxLevel, const unsigned i
  * @return 1 on success, 0 on user abort, -1 on error
  */
 int tds_traverse(const char * path, const int maxLevel, const int options, TraverseDirVisitorS visitor, void * param) {
-	int cleanOptions = options & TDSO_ALL;
+	const int cleanOptions = options & TDSO_ALL;
 	if (cleanOptions == 0) return -1;
-	if (path == NULL) return -1;
+	if (path == NULL || *path == 0) return -1;
 	if (visitor == NULL) return -1;
 	return tds_traverseR(path, maxLevel, 0, cleanOptions, visitor, param);
-	
 }

@@ -4,8 +4,8 @@
  * @see argp.h
  * @see ARGP_FUNC()
  * @date 2017-05-18
- * @version 2017-05-28
- * 
+ * @version 2026-06-20
+ *
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
  * All contributions are also assumed to be in the Public Domain.
@@ -50,6 +50,8 @@ typedef struct tArgPS {
 	int i; /**< next argument list index (may be changed by user) */
 	int nextI; /**< argument list index to next character to be parsed */
 	int lastOpt; /**< index to the previous option (for reordering) */
+	int firstNonOpt; /**< first index of the pending non-option block (for reordering) */
+	int lastNonOpt; /**< index past the pending non-option block (for reordering) */
 	int opt; /**< erroneous option */
 	tArgPFlag flags; /**< see tArgPFlag */
 	const char * arg; /**< next argument to be parsed */

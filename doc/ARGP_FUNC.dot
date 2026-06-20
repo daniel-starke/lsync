@@ -1,5 +1,7 @@
 digraph ARGP_FUNC {
 	# dashed lines indicate that the transition returns the value to the user
+	# "operand" denotes a non-option argument: [^-].* or a lone "-"
+	# default mode reorders operands behind the options (GNU getopt)
 	rankdir=LR;
 	graph [fontsize=11, fontname=helvetica];
 	node [style=filled, fillcolor=lightgray, fontsize=11, fontname=helvetica];
@@ -12,11 +14,13 @@ digraph ARGP_FUNC {
 	START -> ERR_NULL_PTR [label="pointer == NULL"];
 	NEXT -> START [label="i < lastOpt", constraint=false];
 	NEXT -> END [label="i >= argc"];
-	NEXT:w -> NEXT:w [label=<[^-].* <FONT COLOR="blue">AND</FONT><BR/>POSIXLY_CORRECT>];
-	NEXT -> ARG [label=<[^-].*<BR/><FONT COLOR="blue">AND </FONT>ARG_ONE<BR/><FONT COLOR="blue">AND </FONT>!POSIXLY_CORRECT>];
+	NEXT:w -> NEXT:w [label=<operand (reorder):<BR/>!POSIXLY_CORRECT <FONT COLOR="blue">AND</FONT><BR/>!ARG_ONE>];
+	NEXT -> END [label=<reordering reaches "--"<BR/><FONT COLOR="blue">OR </FONT>no more options>];
+	NEXT -> END [label=<operand <FONT COLOR="blue">AND</FONT><BR/>POSIXLY_CORRECT>];
+	NEXT -> ARG [label=<operand <FONT COLOR="blue">AND </FONT>ARG_ONE>];
 	NEXT -> SHORT [label=<-[^-].*<BR/><FONT COLOR="blue">AND </FONT>SHORT>];
 	NEXT -> LONG [label=<LONG <FONT COLOR="blue">AND </FONT>(--.* <FONT COLOR="blue">OR</FONT><BR/>(-[^-].* <FONT COLOR="blue">AND </FONT>!SHORT))>];
-	NEXT -> ERR_NON_OPT [label=<-[\0-] <FONT COLOR="blue">OR </FONT>([^-].*<BR/><FONT COLOR="blue">AND </FONT>!ARG_ONE<BR/><FONT COLOR="blue">AND </FONT>!POSIXLY_CORRECT)>];
+	NEXT -> ERR_NON_OPT [label=<"--" <FONT COLOR="blue">AND</FONT><BR/>(POSIXLY_CORRECT <FONT COLOR="blue">OR </FONT>ARG_ONE)>];
 	ARG -> ERR_MISSING_ARG [label=<arg == NULL<BR/><FONT COLOR="blue">AND </FONT>required>];
 	ARG -> NEXT [label=<arg != NULL<BR/><FONT COLOR="blue">OR </FONT>optional>, style=dashed];
 	SHORT -> LONG [label=<LONG <FONT COLOR="blue">AND</FONT><BR/>-W <FONT COLOR="blue">AND </FONT>GNU_W>];
