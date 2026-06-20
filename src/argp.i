@@ -48,10 +48,11 @@
 
 
 #ifdef ARGP_UNICODE
+#define _T(x) L##x
 #define CHAR_T wchar_t
 #define INT_T wchar_t
-#define PRCHAR "lc"
-#define PRTCHAR "ls"
+#define PRCHAR L"lc"
+#define PRTCHAR L"ls"
 #ifndef TCHAR_STLEN
 #define TCHAR_STLEN wcslen
 #endif /* TCHAR_STLEN */
@@ -59,9 +60,10 @@
 #define TCHAR_STCHR(str, c) wcschr((str), (wchar_t)(c))
 #endif /* TCHAR_STCHR */
 #ifndef TCHAR_ERROR
-#define TCHAR_ERROR(fmt, ...) fwprintf(stderr, L##fmt, __VA_ARGS__)
+#define TCHAR_ERROR(fmt, ...) fwprintf(stderr, fmt, __VA_ARGS__)
 #endif /* TCHAR_ERROR */
 #else /* ! ARGP_UNICODE */
+#define _T(x) x
 #define CHAR_T char
 #define INT_T int
 #define PRCHAR "c"
@@ -455,9 +457,9 @@ onEndOfShortFlags:;
 		o->next = NULL;
 		if ((o->flags & ARGP_FORWARD_ERRORS) == 0) {
 			if (opt != NULL) {
-				TCHAR_ERROR("%" PRTCHAR ": option '%" PRTCHAR "' requires an argument\n", argv[0], argv[o->lastOpt]);
+				TCHAR_ERROR(_T("%") PRTCHAR _T(": option '%") PRTCHAR _T("' requires an argument\n"), argv[0], argv[o->lastOpt]);
 			} else {
-				TCHAR_ERROR("%" PRTCHAR ": option '-%" PRCHAR "' requires an argument\n", argv[0], o->opt);
+				TCHAR_ERROR(_T("%") PRTCHAR _T(": option '-%") PRCHAR _T("' requires an argument\n"), argv[0], o->opt);
 			}
 		}
 		if ((o->flags & ARGP_FORWARD_ERRORS) != 0) return ':';
@@ -471,9 +473,9 @@ onEndOfShortFlags:;
 		}
 		if ((o->flags & ARGP_FORWARD_ERRORS) == 0) {
 			if (opt != NULL) {
-				TCHAR_ERROR("%" PRTCHAR ": unrecognized option '%" PRTCHAR "'\n", argv[0], argv[o->lastOpt]);
+				TCHAR_ERROR(_T("%") PRTCHAR _T(": unrecognized option '%") PRTCHAR _T("'\n"), argv[0], argv[o->lastOpt]);
 			} else {
-				TCHAR_ERROR("%" PRTCHAR ": unrecognized option '-%" PRCHAR "'\n", argv[0], o->opt);
+				TCHAR_ERROR(_T("%") PRTCHAR _T(": unrecognized option '-%") PRCHAR _T("'\n"), argv[0], o->opt);
 			}
 		}
 		return '?';
@@ -484,7 +486,7 @@ onEndOfShortFlags:;
 		o->lastOpt = o->i;
 		o->i++;
 		if ((o->flags & ARGP_FORWARD_ERRORS) == 0) {
-			TCHAR_ERROR("%" PRTCHAR ": option '%" PRTCHAR "' is ambiguous\n", argv[0], argv[o->lastOpt]);
+			TCHAR_ERROR(_T("%") PRTCHAR _T(": option '%") PRTCHAR _T("' is ambiguous\n"), argv[0], argv[o->lastOpt]);
 		}
 		return '?';
 		break;
