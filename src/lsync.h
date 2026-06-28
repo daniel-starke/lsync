@@ -2,7 +2,7 @@
  * @file lsync.h
  * @author Daniel Starke
  * @date 2017-05-17
- * @version 2026-06-20
+ * @version 2026-06-28
  *
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -30,7 +30,7 @@
 #include "dirstack.h"
 
 
-#define PROGRAM_VERSION _T("2.0.0 2026-06-20")
+#define PROGRAM_VERSION _T("2.1.0 2026-06-28")
 
 
 #define BUFFER_SIZE 32768
@@ -48,6 +48,7 @@
 #include "tdirus.h"
 #define TDF_FILE TDSUF_FILE
 #define TDF_DIR TDSUF_DIR
+#define TDF_LINK TDSUF_LINK
 #define TDF_ERROR TDSUF_ERROR
 #define TDO_DIRECTORY TDUSO_DIRECTORY
 #define TDO_ITEM TDUSO_ITEM
@@ -59,6 +60,7 @@
 #include "tdirs.h"
 #define TDF_FILE TDSF_FILE
 #define TDF_DIR TDSF_DIR
+#define TDF_LINK TDSF_LINK
 #define TDF_ERROR TDSF_ERROR
 #define TDO_DIRECTORY TDSO_DIRECTORY
 #define TDO_ITEM TDSO_ITEM

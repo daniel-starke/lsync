@@ -4,6 +4,10 @@ M.N.P
 | +---- minor: increased if command-line syntax/semantic breaking changes were applied
 +------ major: increased if elementary changes (from user's point of view) were made
 
+2.1.0 (2026-06-28)
+ - fixed: Windows created empty directories for directory symlinks instead of copying them as links
+ - fixed: directory symlinks now handled consistently on Linux and Windows
+
 2.0.0 (2026-06-20)
  - added: independent -t/--times to preserve modification times without owner/group/perms
  - added: single source file with non-directory destination copied to that path (like rsync)

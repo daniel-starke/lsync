@@ -2,7 +2,7 @@
  * @file tchar.h
  * @author Daniel Starke
  * @date 2014-05-04
- * @version 2026-06-17
+ * @version 2026-06-28
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -28,6 +28,9 @@
 #  define UNICODE 1
 #  include <wchar.h>
 # endif /* defined(_UNICODE) || defined(UNICODE) */
+# ifdef __MINGW32__
+#  include <sys/stat.h>
+# endif
 #else /* not __MINGW32__ */
 # include <string.h>
 #endif
@@ -111,15 +114,28 @@ extern __attribute__((__dllimport__)) int _wtoi(const wchar_t *);
 extern __attribute__((__dllimport__)) FILE * _fopen(const char *, const char *);
 extern __attribute__((__dllimport__)) FILE * _wfopen(const wchar_t *, const wchar_t *);
 #endif
-# ifdef UNICODE
-#  if !defined(_O_U16TEXT) && ! defined(__MINGW64__)
-#   define _O_U16TEXT 0x20000
-#   ifndef _O_U8TEXT
-#    define _O_U8TEXT 0x40000
-#   endif /* _O_U8TEXT */
+# ifdef __MINGW32__
+#  if ! defined(__MINGW64_VERSION_MAJOR)
 #   define wstat _wstat
-#  endif /* !defined(_O_U16TEXT) && !defined(__MINGW64__) */
-# endif /* UNICODE */
+#   define stat _stat
+#   ifdef UNICODE
+#    ifndef _O_U16TEXT
+#     define _O_U16TEXT 0x20000
+#    endif /* _O_U16TEXT */
+#    ifndef _O_U8TEXT
+#     define _O_U8TEXT 0x40000
+#    endif /* _O_U8TEXT */
+#   endif /* UNICODE */
+#  elif defined(_FILE_OFFSET_BITS) && (_FILE_OFFSET_BITS == 64)
+#   ifdef _USE_32BIT_TIME_T
+#    define stat _stat32i64
+#    define wstat _wstat32i64
+#   else /* _USE_32BIT_TIME_T */
+#    define stat _stat64
+#    define wstat _wstat64
+#   endif /* _USE_32BIT_TIME_T */
+#  endif
+# endif /* __MINGW32__ */
 # define UINT64_FMT _T("%" PRIu64)
 #endif /* not _MSC_VER */
 

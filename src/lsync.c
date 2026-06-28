@@ -2,7 +2,7 @@
  * @file lsync.c
  * @author Daniel Starke
  * @date 2017-05-17
- * @version 2026-06-20
+ * @version 2026-06-28
  *
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -407,8 +407,13 @@ int backupVisitor(const TCHAR * src, const TCHAR * item, const TCHAR * ext, cons
 		ctx->hadError = 1;
 		return 1;
 	}
+	/* symlinks (file or directory) are reported but never descended -> copy as a link */
+	int itemFlags = flags;
+	if (fromTraversal != 0 && (flags & TDF_LINK) != 0) {
+		itemFlags = TDF_FILE;
+	}
 	/* without --recursive sub directories are skipped entirely */
-	if (flags == TDF_DIR && fromTraversal && ctx->recursive == 0) {
+	if (itemFlags == TDF_DIR && fromTraversal && ctx->recursive == 0) {
 		ds_consume(&ctx->dirStack, level, dirStackFinalize, ctx);
 		return 1;
 	}
@@ -434,7 +439,7 @@ int backupVisitor(const TCHAR * src, const TCHAR * item, const TCHAR * ext, cons
 		const size_t dstArgLen = _tcslen(ctx->dstArg);
 		ok = (dstArgLen < BUFFER_SIZE) ? 1 : 0;
 		if (ok != 0) memcpy(ctx->dst, ctx->dstArg, sizeof(TCHAR) * (dstArgLen + 1));
-	} else if (flags == TDF_FILE && item == NULL) {
+	} else if (itemFlags == TDF_FILE && item == NULL) {
 		/* single file */
 		ok = joinPath(ctx->dst, BUFFER_SIZE, ctx->dstArg, srcBase, NULL);
 	} else if (trailingSep != 0) {
@@ -450,7 +455,7 @@ int backupVisitor(const TCHAR * src, const TCHAR * item, const TCHAR * ext, cons
 		return 1; /* ignore this path */
 	}
 	/* backup source to destination */
-	if (flags == TDF_DIR) {
+	if (itemFlags == TDF_DIR) {
 		if (createDirectory(ctx->dst, ctx->verbose) == 0) {
 			/* recoverable single directory failure -> partial backup, keep going */
 			_ftprintf(stderr, _T("Error: Failed creating destination path \"%s\".\n"), ctx->dst);
@@ -473,7 +478,7 @@ int backupVisitor(const TCHAR * src, const TCHAR * item, const TCHAR * ext, cons
 			if (ds_push(&ctx->dirStack, src, ctx->dst, level) == 0) ctx->hadError = 1;
 		}
 		return 1;
-	} else if (flags == TDF_FILE) {
+	} else if (itemFlags == TDF_FILE) {
 		int wrote = 0;
 		int hardlinked = 0;
 		if (ctx->linkDest == NULL) {
@@ -492,7 +497,7 @@ int backupVisitor(const TCHAR * src, const TCHAR * item, const TCHAR * ext, cons
 				const TCHAR * dstBase = _tcsrpbrk(ctx->dstArg, PATH_SEPS);
 				dstBase = (dstBase == NULL) ? ctx->dstArg : (dstBase + 1);
 				ok = joinPath(ctx->ref, BUFFER_SIZE, ctx->linkDest, dstBase, NULL);
-			} else if (flags == TDF_FILE && item == NULL) {
+			} else if (itemFlags == TDF_FILE && item == NULL) {
 				ok = joinPath(ctx->ref, BUFFER_SIZE, ctx->linkDest, srcBase, NULL);
 			} else if (trailingSep != 0) {
 				ok = joinPath(ctx->ref, BUFFER_SIZE, ctx->linkDest, rel, NULL);

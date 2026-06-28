@@ -3,7 +3,7 @@
  * @author Daniel Starke
  * @see tdirs.c
  * @date 2012-12-15
- * @version 2026-06-16
+ * @version 2026-06-28
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -35,7 +35,8 @@ extern "C" {
 typedef enum tTdsFlag {
 	TDSF_FILE = 0,
 	TDSF_DIR = 1,
-	TDSF_ERROR = TDSF_DIR << 1
+	TDSF_LINK = TDSF_DIR << 1,
+	TDSF_ERROR = TDSF_LINK << 1
 } tTdsFlag;
 
 
@@ -45,10 +46,10 @@ typedef enum tTdsFlag {
  * for speed increase. The path, item and ext parameter share
  * the same memory, which makes the following example
  * possible.
- * <br><br>Expample:<pre>
+ * <br><br>Example:<pre>
  * inline int processDir(const char * path, const char * item, const char * ext,
  *  const int flags, const unsigned int level, void * param) {
- *  switch (flags) {
+ *  switch (flags & ~TDSF_LINK) {
  *  case TDSF_FILE:
  *   if (*ext != 0) {
  *    printf("%u:%.*s: %s (%s)\n", level, (int)(item - path), path, item, ext);

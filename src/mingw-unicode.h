@@ -2,7 +2,7 @@
  * @file mingw-unicode.h
  * @author Daniel Starke
  * @date 2013-02-16
- * @version 2024-04-13
+ * @version 2026-06-28
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -41,8 +41,17 @@
 #include <wchar.h>
 #include <stdlib.h>
 
-#if !defined(__MINGW64__)
+#if ! defined(__MINGW64_VERSION_MAJOR)
 # define stat _stat
+# define wstat _wstat
+#elif defined(_FILE_OFFSET_BITS) && (_FILE_OFFSET_BITS == 64)
+# ifdef _USE_32BIT_TIME_T
+#  define stat _stat32i64
+#  define wstat _wstat32i64
+# else /* _USE_32BIT_TIME_T*/
+#  define stat _stat64
+#  define wstat _wstat64
+# endif /* _USE_32BIT_TIME_T */
 #endif
 
 #ifdef __TINYC__

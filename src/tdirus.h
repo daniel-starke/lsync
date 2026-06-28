@@ -3,7 +3,7 @@
  * @author Daniel Starke
  * @see tdirus.c
  * @date 2012-12-16
- * @version 2020-05-16
+ * @version 2026-06-28
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -36,7 +36,8 @@ extern "C" {
 typedef enum tTdusFlag {
 	TDSUF_FILE = 0,
 	TDSUF_DIR = 1,
-	TDSUF_ERROR = TDSUF_DIR << 1
+	TDSUF_LINK = TDSUF_DIR << 1,
+	TDSUF_ERROR = TDSUF_LINK << 1
 } tTdusFlag;
 
 
@@ -46,10 +47,10 @@ typedef enum tTdusFlag {
  * for speed increase. The path, item and ext parameter share
  * the same memory, which makes the following example
  * possible.
- * <br><br>Expample:<pre>
+ * <br><br>Example:<pre>
  * inline int processDir(const wchar_t * path, const wchar_t * item, const wchar_t * ext,
  *  const int flags, const unsigned int level, void * param) {
- *  switch (flags) {
+ *  switch (flags & ~TDSUF_LINK) {
  *  case TDSUF_FILE:
  *   if (*ext != 0) {
  *    wprintf(L"%u:%.*s: %s (%s)\n", level, (int)(item - path), path, item, ext);
