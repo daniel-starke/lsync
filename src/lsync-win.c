@@ -2,7 +2,7 @@
  * @file lsync-win.c
  * @author Daniel Starke
  * @date 2017-05-22
- * @version 2026-06-19
+ * @version 2026-09-22
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -40,6 +40,10 @@
 #endif
 
 
+/** File size in bytes from which on `copyFile()` bypasses the system cache. */
+#define NO_BUFFERING_THRESHOLD (512ULL * 1024 * 1024)
+
+
 #ifndef IO_REPARSE_TAG_SYMLINK
 #define IO_REPARSE_TAG_SYMLINK 0xA000000CL
 #endif
@@ -68,6 +72,22 @@
 #ifndef SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
 #define SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE 0x2
 #endif
+
+
+/** Defines the room longPath() keeps in front of a resolved path for its prefix. */
+#define LONG_PATH_ROOM 6
+
+
+/**
+ * Defines the length from which a path is handed to a Win32 call in its prefixed form.
+ * `CreateDirectory()` stops twelve characters below `MAX_PATH`, since it keeps room for
+ * an 8.3 name below the new directory, and that is the tightest of the limits involved.
+ */
+#define LONG_PATH_LIMIT (MAX_PATH - 12)
+
+
+/** Tests whether the given character ends a path element. */
+#define IS_PATH_SEP(c) ((c) == _T('\\') || (c) == _T('/'))
 
 
 /** Layout of REPARSE_DATA_BUFFER for an IO_REPARSE_TAG_SYMLINK reparse point. */
@@ -105,25 +125,188 @@ static void printLastError(const TCHAR * obj, const TCHAR * msg) {
 
 
 /**
+ * Tests whether the given path is written in the Win32 file name space (`\\?\`) or in
+ * the device name space (`\\.\`). Neither form is resolved against the working directory.
+ *
+ * @param[in] path - path to test
+ * @return 1 if the path carries such a prefix, else 0
+ */
+static int isPathPrefixed(const TCHAR * path) {
+	return (IS_PATH_SEP(path[0]) && IS_PATH_SEP(path[1])
+		&& (path[2] == _T('?') || path[2] == _T('.')) && IS_PATH_SEP(path[3])) ? 1 : 0;
+}
+
+
+/**
+ * Tests whether the given path is absolute, which makes it exactly as long as it is
+ * written. That is a path starting at the root of a drive or a UNC path.
+ *
+ * @param[in] path - path to test
+ * @return 1 if the path is absolute, else 0
+ */
+static int isPathAbsolute(const TCHAR * path) {
+	if (IS_PATH_SEP(path[0]) && IS_PATH_SEP(path[1])) return 1;
+	return ((path[0] | 0x20) >= _T('a') && (path[0] | 0x20) <= _T('z')
+		&& path[1] == _T(':') && IS_PATH_SEP(path[2])) ? 1 : 0;
+}
+
+
+/**
+ * Returns the form of `path` a Win32 call accepts at any length. A path of `MAX_PATH` or
+ * more becomes absolute with the `\\?\` or `\\?\UNC\` prefix, so no `longPathAware`
+ * manifest is needed. Other paths, and every path of the narrow build, are returned
+ * unchanged.
+ *
+ * @param[in] path - path to convert
+ * @param[out] heap - receives the buffer the caller frees, else `NULL`
+ * @return path to hand to the Win32 call
+ */
+static const TCHAR * longPath(const TCHAR * path, TCHAR ** heap) {
+#ifdef UNICODE
+	DWORD need, got;
+	TCHAR * buf;
+	TCHAR * full;
+#endif /* UNICODE */
+	*heap = NULL;
+#ifdef UNICODE
+	if (isPathPrefixed(path) != 0) return path;
+	if (isPathAbsolute(path) != 0 && _tcslen(path) < LONG_PATH_LIMIT) return path;
+	need = GetFullPathName(path, 0, NULL, NULL); /* size including the terminator */
+	if (need <= LONG_PATH_LIMIT) return path; /* short enough or unresolvable -> left to the call */
+	buf = (TCHAR *)malloc(((size_t)need + LONG_PATH_ROOM) * sizeof(TCHAR));
+	if (buf == NULL) return path;
+	full = buf + LONG_PATH_ROOM;
+	got = GetFullPathName(path, need, full, NULL);
+	if (got == 0 || got >= need || isPathPrefixed(full) != 0) {
+		/* unresolvable or a device name -> left to the call */
+		free(buf);
+		return path;
+	}
+	*heap = buf;
+	if (IS_PATH_SEP(full[0]) && IS_PATH_SEP(full[1])) {
+		/* the prefix of a share takes the place of its first separator */
+		memcpy(buf, _T("\\\\?\\UNC"), 7 * sizeof(TCHAR));
+		return buf;
+	}
+	memcpy(full - 4, _T("\\\\?\\"), 4 * sizeof(TCHAR));
+	return full - 4;
+#else /* not UNICODE */
+	return path;
+#endif /* not UNICODE */
+}
+
+
+/**
+ * Returns the attributes of the given path at any path length. The last error is the one
+ * the Win32 call left behind, as for `GetFileAttributes()` itself.
+ *
+ * @param[in] path - path to query
+ * @return attributes of the path or `INVALID_FILE_ATTRIBUTES` on error
+ */
+static DWORD getAttributes(const TCHAR * path) {
+	TCHAR * heap;
+	const DWORD attr = GetFileAttributes(longPath(path, &heap));
+	const DWORD err = GetLastError();
+	if (heap != NULL) free(heap);
+	SetLastError(err);
+	return attr;
+}
+
+
+/**
+ * Returns attributes, size and timestamps of the given path at any path length in a single
+ * query. Unlike an open handle this needs no access to the file itself, which keeps a file
+ * locked by another process comparable, and it costs an antivirus scanner far less than the
+ * `CreateFile()` it replaces. Reparse points are described by their own record, exactly as an
+ * open with `FILE_FLAG_OPEN_REPARSE_POINT` would.
+ *
+ * @param[in] path - path to query
+ * @param[out] fad - receives the file attribute data
+ * @return non-zero on success, 0 on failure
+ */
+static BOOL getAttributesEx(const TCHAR * path, WIN32_FILE_ATTRIBUTE_DATA * fad) {
+	TCHAR * heap;
+	const BOOL res = GetFileAttributesEx(longPath(path, &heap), GetFileExInfoStandard, fad);
+	const DWORD err = GetLastError();
+	if (heap != NULL) free(heap);
+	SetLastError(err);
+	return res;
+}
+
+
+/**
+ * Deletes the given file at any path length.
+ *
+ * @param[in] path - file to delete
+ * @return non-zero on success, 0 on failure
+ */
+static BOOL deleteFilePath(const TCHAR * path) {
+	TCHAR * heap;
+	const BOOL res = DeleteFile(longPath(path, &heap));
+	const DWORD err = GetLastError();
+	if (heap != NULL) free(heap);
+	SetLastError(err);
+	return res;
+}
+
+
+/**
+ * Removes the given empty directory at any path length.
+ *
+ * @param[in] path - directory to remove
+ * @return non-zero on success, 0 on failure
+ */
+static BOOL removeDirectoryPath(const TCHAR * path) {
+	TCHAR * heap;
+	const BOOL res = RemoveDirectory(longPath(path, &heap));
+	const DWORD err = GetLastError();
+	if (heap != NULL) free(heap);
+	SetLastError(err);
+	return res;
+}
+
+
+/**
+ * Opens the given path at any path length (see `CreateFile()`).
+ *
+ * @param[in] path - path to open
+ * @param[in] access - desired access
+ * @param[in] share - share mode
+ * @param[in] disposition - creation disposition
+ * @param[in] flags - flags and attributes
+ * @return file handle or `INVALID_HANDLE_VALUE` on error
+ */
+static HANDLE createFilePath(const TCHAR * path, const DWORD access, const DWORD share,
+	const DWORD disposition, const DWORD flags) {
+	TCHAR * heap;
+	const HANDLE res = CreateFile(longPath(path, &heap), access, share, NULL, disposition, flags, NULL);
+	const DWORD err = GetLastError();
+	if (heap != NULL) free(heap);
+	SetLastError(err);
+	return res;
+}
+
+
+/**
  * Checks if the given path exists and is not a directory.
- * 
+ *
  * @param[in] src - check this path
  * @return 1 if src exists and is not a directory, else 0
  */
 int isFile(const TCHAR * src) {
-	DWORD dwAttrib = GetFileAttributes(src);
+	DWORD dwAttrib = getAttributes(src);
 	return (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY) == 0) ? 1 : 0;
 }
 
 
 /**
  * Checks if the given path exists and is a directory.
- * 
+ *
  * @param[in] src - check this path
  * @return 1 if src is a directory, else 0
  */
 int isDirectory(const TCHAR * src) {
-	DWORD dwAttrib = GetFileAttributes(src);
+	DWORD dwAttrib = getAttributes(src);
 	return (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_DIRECTORY) != 0) ? 1 : 0;
 }
 
@@ -135,7 +318,7 @@ int isDirectory(const TCHAR * src) {
  * @return 1 if src is a reparse point, else 0
  */
 int isSymlink(const TCHAR * src) {
-	DWORD dwAttrib = GetFileAttributes(src);
+	DWORD dwAttrib = getAttributes(src);
 	return (dwAttrib != INVALID_FILE_ATTRIBUTES && (dwAttrib & FILE_ATTRIBUTE_REPARSE_POINT) != 0) ? 1 : 0;
 }
 
@@ -221,13 +404,15 @@ static size_t rootPrefixLen(const TCHAR * path) {
  * @return 1 on success (or if the path does not exist), 0 on failure
  */
 static int removePath(const TCHAR * path, const int verbose) {
-	const DWORD attr = GetFileAttributes(path);
+	const DWORD attr = getAttributes(path);
 	if (attr == INVALID_FILE_ATTRIBUTES) return 1; /* nothing to remove */
 	if ((attr & FILE_ATTRIBUTE_DIRECTORY) == 0) {
 		if ((attr & FILE_ATTRIBUTE_READONLY) != 0) {
-			SetFileAttributes(path, attr & (~((DWORD)FILE_ATTRIBUTE_READONLY)));
+			TCHAR * heap;
+			SetFileAttributes(longPath(path, &heap), attr & (~((DWORD)FILE_ATTRIBUTE_READONLY)));
+			if (heap != NULL) free(heap);
 		}
-		if (DeleteFile(path) == 0) {
+		if (deleteFilePath(path) == 0) {
 			if (verbose > 0) printLastError(path, _T("DeleteFile():")_T2(TO_STR2(__LINE__)));
 			return 0;
 		}
@@ -244,7 +429,9 @@ static int removePath(const TCHAR * path, const int verbose) {
 		if (pattern == NULL) return 0;
 		_sntprintf(pattern, patLen, _T("%s")_T2(PCF_PATH_SEP)_T("*"), path);
 		pattern[patLen - 1] = 0;
-		dp = FindFirstFile(pattern, &item);
+		TCHAR * patHeap;
+		dp = FindFirstFile(longPath(pattern, &patHeap), &item);
+		if (patHeap != NULL) free(patHeap);
 		free(pattern);
 		if (dp == INVALID_HANDLE_VALUE) {
 			if (verbose > 0) printLastError(path, _T("FindFirstFile():")_T2(TO_STR2(__LINE__)));
@@ -267,7 +454,7 @@ static int removePath(const TCHAR * path, const int verbose) {
 		FindClose(dp);
 		if (result == 0) return 0;
 	}
-	if (RemoveDirectory(path) == 0) {
+	if (removeDirectoryPath(path) == 0) {
 		if (verbose > 0) printLastError(path, _T("RemoveDirectory():")_T2(TO_STR2(__LINE__)));
 		return 0;
 	}
@@ -313,10 +500,13 @@ int createDirectory(const TCHAR * dst, const int verbose) {
 		if (end != NULL) *end = 0; /* limit `dir` to current path prefix */
 		if (isDirectory(dir) == 0) {
 			/* replace non-directory at this path */
-			if (GetFileAttributes(dir) != INVALID_FILE_ATTRIBUTES) {
+			if (getAttributes(dir) != INVALID_FILE_ATTRIBUTES) {
 				if (removePath(dir, verbose) == 0) goto onError;
 			}
-			if (CreateDirectory(dir, NULL) == 0) {
+			TCHAR * dirHeap;
+			const BOOL created = CreateDirectory(longPath(dir, &dirHeap), NULL);
+			if (dirHeap != NULL) free(dirHeap);
+			if (created == 0) {
 				if (verbose > 0) printLastError(dir, _T("CreateDirectory():")_T2(TO_STR2(__LINE__)));
 				goto onError;
 			}
@@ -359,7 +549,7 @@ int createTempName(const TCHAR * dst, TCHAR ** tmp, const int verbose) {
 		seed = (seed * 1103515245u) + 12345u;
 		_sntprintf(tmpPath, bufLen, _T("%s.tmp%08x"), dst, (unsigned)seed);
 		tmpPath[bufLen - 1] = 0;
-		if (GetFileAttributes(tmpPath) == INVALID_FILE_ATTRIBUTES) {
+		if (getAttributes(tmpPath) == INVALID_FILE_ATTRIBUTES) {
 			const DWORD err = GetLastError();
 			if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) {
 				*tmp = tmpPath;
@@ -382,7 +572,16 @@ int createTempName(const TCHAR * dst, TCHAR ** tmp, const int verbose) {
  * @return 1 on success, 0 on failure
  */
 int renameFile(const TCHAR * src, const TCHAR * dst, const int verbose) {
-	if (MoveFileEx(src, dst, MOVEFILE_REPLACE_EXISTING) == 0) {
+	TCHAR * srcHeap;
+	TCHAR * dstHeap;
+	const TCHAR * srcPath = longPath(src, &srcHeap);
+	const TCHAR * dstPath = longPath(dst, &dstHeap);
+	const BOOL moved = MoveFileEx(srcPath, dstPath, MOVEFILE_REPLACE_EXISTING);
+	const DWORD err = GetLastError();
+	if (srcHeap != NULL) free(srcHeap);
+	if (dstHeap != NULL) free(dstHeap);
+	if (moved == 0) {
+		SetLastError(err);
 		if (verbose > 0) printLastError(dst, _T("MoveFileEx():")_T2(TO_STR2(__LINE__)));
 		return 0;
 	}
@@ -406,9 +605,20 @@ int createHardLink(const TCHAR * src, const TCHAR * dst, const int verbose) {
 	/* link under a temporary name and rename it into place so a failed link never
 	 * destroys the existing destination (atomic replace, like the copy path) */
 	if (createTempName(dst, &tmpPath, verbose) == 0) return 0;
-	if (CreateHardLink(tmpPath, src, NULL) == 0) {
-		if (verbose > 0) printLastError(tmpPath, _T("CreateHardLink():")_T2(TO_STR2(__LINE__)));
-		goto onError;
+	{
+		TCHAR * tmpHeap;
+		TCHAR * srcHeap;
+		const TCHAR * tmpLong = longPath(tmpPath, &tmpHeap);
+		const TCHAR * srcLong = longPath(src, &srcHeap);
+		const BOOL linked = CreateHardLink(tmpLong, srcLong, NULL);
+		const DWORD err = GetLastError();
+		if (tmpHeap != NULL) free(tmpHeap);
+		if (srcHeap != NULL) free(srcHeap);
+		if (linked == 0) {
+			SetLastError(err);
+			if (verbose > 0) printLastError(tmpPath, _T("CreateHardLink():")_T2(TO_STR2(__LINE__)));
+			goto onError;
+		}
 	}
 	if (renameFile(tmpPath, dst, verbose) == 0) goto onError;
 	result = 1;
@@ -416,7 +626,7 @@ int createHardLink(const TCHAR * src, const TCHAR * dst, const int verbose) {
 		_ftprintf(stdout, _T("Created hardlink \"%s\" pointing to \"%s\".\n"), dst, src);
 	}
 onError:
-	if (result == 0) DeleteFile(tmpPath); /* discard the temp link on failure */
+	if (result == 0) deleteFilePath(tmpPath); /* discard the temp link on failure */
 	free(tmpPath);
 	return result;
 }
@@ -465,7 +675,7 @@ static int copySymbolicLink(const TCHAR * src, const TCHAR * dst, const int verb
 		createSymbolicLink = conv.func;
 	}
 	/* read the reparse point to obtain the link target without following it */
-	file = CreateFile(src, 0, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, NULL);
+	file = createFilePath(src, 0, FILE_SHARE_READ, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS);
 	if (file == INVALID_HANDLE_VALUE) {
 		if (verbose > 0) printLastError(src, _T("CreateFile():")_T2(TO_STR2(__LINE__)));
 		return 0;
@@ -520,10 +730,14 @@ static int copySymbolicLink(const TCHAR * src, const TCHAR * dst, const int verb
 	const DWORD dwFlags = (isDir != 0) ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0;
 	TCHAR * tmpPath = NULL;
 	if (createTempName(dst, &tmpPath, verbose) == 0) return 0;
+	TCHAR * tmpHeap;
+	const TCHAR * tmpLong = longPath(tmpPath, &tmpHeap);
 	/* try the unprivileged create flag first (Windows 10 1703+ with developer mode), then
 	 * without it for older systems that reject the unknown flag */
-	if ((*createSymbolicLink)(tmpPath, target, (DWORD)(dwFlags | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) == 0
-		&& (*createSymbolicLink)(tmpPath, target, dwFlags) == 0) {
+	const BOOL linked = ((*createSymbolicLink)(tmpLong, target, (DWORD)(dwFlags | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) != 0
+		|| (*createSymbolicLink)(tmpLong, target, dwFlags) != 0);
+	if (tmpHeap != NULL) free(tmpHeap);
+	if ( ! linked ) {
 		if (verbose > 0) {
 			printLastError(tmpPath, _T("CreateSymbolicLink():")_T2(TO_STR2(__LINE__)));
 			_ftprintf(stderr, _T("Skipping symbolic link \"%s\" (could not be created; may require privileges).\n"), src);
@@ -532,15 +746,15 @@ static int copySymbolicLink(const TCHAR * src, const TCHAR * dst, const int verb
 		return 1; /* graceful skip, destination left untouched */
 	}
 	/* new link exists -> safe to replace the destination */
-	if (GetFileAttributes(dst) != INVALID_FILE_ATTRIBUTES) {
+	if (getAttributes(dst) != INVALID_FILE_ATTRIBUTES) {
 		if (removePath(dst, verbose) == 0) {
-			if (isDir != 0) RemoveDirectory(tmpPath); else DeleteFile(tmpPath);
+			if (isDir != 0) removeDirectoryPath(tmpPath); else deleteFilePath(tmpPath);
 			free(tmpPath);
 			return 0;
 		}
 	}
 	if (renameFile(tmpPath, dst, verbose) == 0) {
-		if (isDir != 0) RemoveDirectory(tmpPath); else DeleteFile(tmpPath);
+		if (isDir != 0) removeDirectoryPath(tmpPath); else deleteFilePath(tmpPath);
 		free(tmpPath);
 		return 0;
 	}
@@ -564,7 +778,11 @@ static int copySymbolicLink(const TCHAR * src, const TCHAR * dst, const int verb
  */
 int copyFile(const TCHAR * src, const TCHAR * dst, const tCopyMask mask, const int verbose) {
 	if (src == NULL || dst == NULL) return 0;
-	if (isSymlink(src) != 0) {
+	WIN32_FILE_ATTRIBUTE_DATA srcFad;
+	/* one query for both the reparse flag and the size that decides the buffering below;
+	 * a failure is left to CopyFileEx() so the caller sees the original error */
+	const BOOL haveSrcFad = getAttributesEx(src, &srcFad);
+	if (haveSrcFad != 0 && (srcFad.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
 		if ((mask & CP_LINKS) != 0) {
 			return copySymbolicLink(src, dst, verbose);
 		}
@@ -578,11 +796,31 @@ int copyFile(const TCHAR * src, const TCHAR * dst, const tCopyMask mask, const i
 	if (createTempName(dst, &tmpPath, verbose) == 0) return 0;
 	/* symlinks are handled above -> only regular files reach this point */
 	/* COPY_FILE_NO_BUFFERING is Vista+; COPY_FILE_FAIL_IF_EXISTS makes the copy fail-closed
-	 * so a process racing for the temporary name cannot have its file silently overwritten */
-	DWORD dwCopyFlags = COPY_FILE_FAIL_IF_EXISTS | ((LOBYTE(LOWORD(GetVersion())) < 6) ? 0 : COPY_FILE_NO_BUFFERING);
-	if (CopyFileEx(src, tmpPath, NULL, NULL, FALSE, dwCopyFlags) == 0) {
-		if (verbose > 0) printLastError(tmpPath, _T("CopyFileEx():")_T2(TO_STR2(__LINE__)));
-		goto onError;
+	 * so a process racing for the temporary name cannot have its file silently overwritten.
+	 * Bypassing the cache pays off only for large files: measured on Windows 11 it costs
+	 * 1.4 to 1.9 times the buffered time for files up to a few megabytes and saves 30% from
+	 * half a gigabyte upwards, which is also where Microsoft puts the switch for robocopy /J */
+	ULARGE_INTEGER srcBytes;
+	srcBytes.LowPart = (haveSrcFad != 0) ? srcFad.nFileSizeLow : 0;
+	srcBytes.HighPart = (haveSrcFad != 0) ? srcFad.nFileSizeHigh : 0;
+	DWORD dwCopyFlags = COPY_FILE_FAIL_IF_EXISTS;
+	if (LOBYTE(LOWORD(GetVersion())) >= 6 && srcBytes.QuadPart >= NO_BUFFERING_THRESHOLD) {
+		dwCopyFlags |= COPY_FILE_NO_BUFFERING;
+	}
+	{
+		TCHAR * srcHeap;
+		TCHAR * tmpHeap;
+		const TCHAR * srcLong = longPath(src, &srcHeap);
+		const TCHAR * tmpLong = longPath(tmpPath, &tmpHeap);
+		const BOOL copied = CopyFileEx(srcLong, tmpLong, NULL, NULL, FALSE, dwCopyFlags);
+		const DWORD err = GetLastError();
+		if (srcHeap != NULL) free(srcHeap);
+		if (tmpHeap != NULL) free(tmpHeap);
+		if (copied == 0) {
+			SetLastError(err);
+			if (verbose > 0) printLastError(tmpPath, _T("CopyFileEx():")_T2(TO_STR2(__LINE__)));
+			goto onError;
+		}
 	}
 	/* replace a directory at destination path (type change) */
 	if (isDirectory(dst) != 0) {
@@ -594,7 +832,7 @@ int copyFile(const TCHAR * src, const TCHAR * dst, const tCopyMask mask, const i
 		_ftprintf(stdout, _T("Copied file \"%s\" to \"%s\".\n"), src, dst);
 	}
 onError:
-	if (result == 0) DeleteFile(tmpPath);
+	if (result == 0) deleteFilePath(tmpPath);
 	free(tmpPath);
 	return result;
 }
@@ -618,14 +856,23 @@ int copyAttributes(const TCHAR * src, const TCHAR * dst, const tAttrMask mask, c
 	PSID owner, group;
 	PACL dacl;
 	HANDLE file = INVALID_HANDLE_VALUE;
-	FILETIME times[3];
-	const int isLink = (isSymlink(src) != 0);
+	WIN32_FILE_ATTRIBUTE_DATA srcFad;
+	/* a single query answers both what the source is and when it was last written, which
+	 * replaces the separate isSymlink() query and the open that used to fetch the times */
+	const BOOL haveSrcFad = getAttributesEx(src, &srcFad);
+	/* kept because the calls below overwrite the last error long before it is reported */
+	const DWORD srcFadError = GetLastError();
+	const int isLink = (haveSrcFad != 0 && (srcFad.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) ? 1 : 0;
 	const DWORD reparseFlag = (isLink != 0) ? FILE_FLAG_OPEN_REPARSE_POINT : 0;
 	const size_t len = _tcslen(dst);
 	char buffer[4096];
 	DWORD neededLength = 0;
 	PSECURITY_DESCRIPTOR sd = (PSECURITY_DESCRIPTOR)buffer;
 	void * sdAlloc = NULL;
+	TCHAR * srcHeap = NULL;
+	TCHAR * dstHeap = NULL;
+	const TCHAR * srcLong = src;
+	TCHAR * dstLong = NULL;
 	TCHAR * dstCpy = (TCHAR *)malloc(sizeof(TCHAR) * (len + 1));
 	if (dstCpy == NULL) {
 		if (verbose > 0) _ftprintf(stderr, _T("Error: Failed to allocate %u bytes.\n"), (unsigned)(sizeof(TCHAR) * (len + 1)));
@@ -633,6 +880,9 @@ int copyAttributes(const TCHAR * src, const TCHAR * dst, const tAttrMask mask, c
 	}
 	memcpy(dstCpy, dst, sizeof(TCHAR) * len);
 	dstCpy[len] = 0;
+	/* the security API takes a path, not a handle, and needs the long form of it */
+	srcLong = longPath(src, &srcHeap);
+	dstLong = (TCHAR *)longPath(dstCpy, &dstHeap);
 	ZeroMemory(&owner, sizeof(owner));
 	ZeroMemory(&group, sizeof(group));
 	ZeroMemory(&dacl, sizeof(dacl));
@@ -641,7 +891,7 @@ int copyAttributes(const TCHAR * src, const TCHAR * dst, const tAttrMask mask, c
 	if ((mask & AT_PERMS) != 0) flags = flags | DACL_SECURITY_INFORMATION;
 	/* copy security information and avoid rewriting link target's ACLs */
 	if (flags != 0 && isLink == 0) {
-		if (GetFileSecurity(src, flags, sd, sizeof(buffer), &neededLength) == 0) {
+		if (GetFileSecurity(srcLong, flags, sd, sizeof(buffer), &neededLength) == 0) {
 			/* descriptor did not fit into stack buffer: retry with exact heap buffer size */
 			if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
 				if (verbose > 0) printLastError(src, _T("GetFileSecurity():")_T2(TO_STR2(__LINE__)));
@@ -653,29 +903,28 @@ int copyAttributes(const TCHAR * src, const TCHAR * dst, const tAttrMask mask, c
 				goto onError;
 			}
 			sd = (PSECURITY_DESCRIPTOR)sdAlloc;
-			if (GetFileSecurity(src, flags, sd, neededLength, &neededLength) == 0) {
+			if (GetFileSecurity(srcLong, flags, sd, neededLength, &neededLength) == 0) {
 				if (verbose > 0) printLastError(src, _T("GetFileSecurity():")_T2(TO_STR2(__LINE__)));
 				goto onError;
 			}
 		}
-		if (SetFileSecurity(dstCpy, flags, sd) == 0) {
+		if (SetFileSecurity(dstLong, flags, sd) == 0) {
 			if (verbose > 0) printLastError(dstCpy, _T("SetFileSecurity():")_T2(TO_STR2(__LINE__)));
 			goto onError;
 		}
 	}
 	/* copy file times */
 	if ((mask & AT_TIMES) != 0) {
-		file = CreateFile(src, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | reparseFlag, NULL);
-		if (file == INVALID_HANDLE_VALUE) {
-			if (verbose > 0) printLastError(src, _T("CreateFile():")_T2(TO_STR2(__LINE__)));
+		FILETIME times[3];
+		if (haveSrcFad == 0) {
+			SetLastError(srcFadError);
+			if (verbose > 0) printLastError(src, _T("GetFileAttributesEx():")_T2(TO_STR2(__LINE__)));
 			goto onError;
 		}
-		if (GetFileTime(file, times, times + 1, times + 2) == 0) {
-			if (verbose > 0) printLastError(src, _T("GetFileTime():")_T2(TO_STR2(__LINE__)));
-			goto onError;
-		}
-		CloseHandle(file);
-		file = CreateFile(dst, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | reparseFlag, NULL);
+		times[0] = srcFad.ftCreationTime;
+		times[1] = srcFad.ftLastAccessTime;
+		times[2] = srcFad.ftLastWriteTime;
+		file = createFilePath(dst, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | reparseFlag);
 		if (file == INVALID_HANDLE_VALUE) {
 			if (verbose > 0) printLastError(dst, _T("CreateFile():")_T2(TO_STR2(__LINE__)));
 			goto onError;
@@ -692,6 +941,8 @@ int copyAttributes(const TCHAR * src, const TCHAR * dst, const tAttrMask mask, c
 onError:
 	if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
 	if (sdAlloc != NULL) free(sdAlloc);
+	if (srcHeap != NULL) free(srcHeap);
+	if (dstHeap != NULL) free(dstHeap);
 	if (dstCpy != NULL) free(dstCpy);
 	return result;
 }
@@ -708,61 +959,33 @@ onError:
  */
 int isNewerFile(const TCHAR * src, const TCHAR * dst, const int verbose) {
 	if (src == NULL || dst == NULL) return -1;
-	int result = -1;
-	HANDLE file = INVALID_HANDLE_VALUE;
-	FILETIME srcTime, dstTime;
-	LARGE_INTEGER srcSize, dstSize;
-	ULARGE_INTEGER srcStamp, dstStamp;
-	const DWORD srcFlags = (isSymlink(src) != 0) ? (FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS) : FILE_ATTRIBUTE_NORMAL;
-	file = CreateFile(src, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, srcFlags, NULL);
-	if (file == INVALID_HANDLE_VALUE) {
-		if (verbose > 0) printLastError(src, _T("CreateFile():")_T2(TO_STR2(__LINE__)));
-		goto onError;
+	WIN32_FILE_ATTRIBUTE_DATA srcFad, dstFad;
+	ULARGE_INTEGER srcSize, dstSize, srcStamp, dstStamp;
+	/* one path query per side replaces the attribute query and the open the reparse point
+	 * aware handle used to need; an antivirus scanner charges per open, not per byte, so
+	 * this is the dominant cost of an unchanged file */
+	if (getAttributesEx(src, &srcFad) == 0) {
+		if (verbose > 0) printLastError(src, _T("GetFileAttributesEx():")_T2(TO_STR2(__LINE__)));
+		return -1;
 	}
-	if (GetFileTime(file, NULL, NULL, &srcTime) == 0) {
-		if (verbose > 0) printLastError(src, _T("GetFileTime():")_T2(TO_STR2(__LINE__)));
-		goto onError;
-	}
-	if (GetFileSizeEx(file, &srcSize) == 0) {
-		if (verbose > 0) printLastError(src, _T("GetFileSizeEx():")_T2(TO_STR2(__LINE__)));
-		goto onError;
-	}
-	CloseHandle(file);
-	const DWORD dstFlags = (isSymlink(dst) != 0) ? (FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS) : FILE_ATTRIBUTE_NORMAL;
-	file = CreateFile(dst, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, dstFlags, NULL);
-	if (file == INVALID_HANDLE_VALUE) {
+	if (getAttributesEx(dst, &dstFad) == 0) {
 		const DWORD err = GetLastError();
 		if (err != ERROR_FILE_NOT_FOUND && err != ERROR_PATH_NOT_FOUND) {
-			if (verbose > 0) printLastError(dst, _T("CreateFile():")_T2(TO_STR2(__LINE__)));
-			result = 1;
-		} else {
-			result = 0;
+			if (verbose > 0) printLastError(dst, _T("GetFileAttributesEx():")_T2(TO_STR2(__LINE__)));
+			return 1;
 		}
-		goto onError;
+		return 0;
 	}
-	if (GetFileTime(file, NULL, NULL, &dstTime) == 0) {
-		if (verbose > 0) printLastError(dst, _T("GetFileTime():")_T2(TO_STR2(__LINE__)));
-		goto onError;
-	}
-	if (GetFileSizeEx(file, &dstSize) == 0) {
-		if (verbose > 0) printLastError(dst, _T("GetFileSizeEx():")_T2(TO_STR2(__LINE__)));
-		goto onError;
-	}
-	srcStamp.LowPart = srcTime.dwLowDateTime;
-	srcStamp.HighPart = srcTime.dwHighDateTime;
-	dstStamp.LowPart = dstTime.dwLowDateTime;
-	dstStamp.HighPart = dstTime.dwHighDateTime;
-	result = 0;
-	if (srcSize.QuadPart == dstSize.QuadPart) {
-		/* compare modification time with one second granularity (100ns FILETIME units per
-		 * second) to match the POSIX backend and tolerate coarser filesystem timestamps */
-		if ((srcStamp.QuadPart / 10000000ULL) != (dstStamp.QuadPart / 10000000ULL)) {
-			result = 1;
-		}
-	} else {
-		result = 1;
-	}
-onError:
-	if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
-	return result;
+	srcSize.LowPart = srcFad.nFileSizeLow;
+	srcSize.HighPart = srcFad.nFileSizeHigh;
+	dstSize.LowPart = dstFad.nFileSizeLow;
+	dstSize.HighPart = dstFad.nFileSizeHigh;
+	srcStamp.LowPart = srcFad.ftLastWriteTime.dwLowDateTime;
+	srcStamp.HighPart = srcFad.ftLastWriteTime.dwHighDateTime;
+	dstStamp.LowPart = dstFad.ftLastWriteTime.dwLowDateTime;
+	dstStamp.HighPart = dstFad.ftLastWriteTime.dwHighDateTime;
+	if (srcSize.QuadPart != dstSize.QuadPart) return 1;
+	/* compare modification time with one second granularity (100ns FILETIME units per
+	 * second) to match the POSIX backend and tolerate coarser filesystem timestamps */
+	return ((srcStamp.QuadPart / 10000000ULL) != (dstStamp.QuadPart / 10000000ULL)) ? 1 : 0;
 }

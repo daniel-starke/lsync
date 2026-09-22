@@ -4,7 +4,7 @@
  * @see argps.h
  * @see argpous.h
  * @date 2017-05-18
- * @version 2017-05-18
+ * @version 2026-09-14
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -60,17 +60,18 @@ typedef enum tArgPFlag {
  * Argument parser processing states.
  */
 typedef enum tArgPState {
-	APST_START,             /**< initial state */
-	APST_NEXT,              /**< process next option */
-	APST_SHORT,             /**< process short option */
-	APST_LONG,              /**< process long option */
-	APST_ARG,               /**< process argument */
-	APST_END,               /**< terminate argument parsing */
-	APST_ERROR_NON_OPT,     /**< error: non-option argument */
-	APST_ERROR_MISSING_ARG, /**< error: missing required argument */
-	APST_ERROR_INVALID_OPT, /**< error: invalid option */
-	APST_ERROR_AMBIGUOUS,   /**< error: ambiguous long option */
-	APST_ERROR_NULL_PTR,    /**< error: null pointer */
+	APST_START,                /**< initial state */
+	APST_NEXT,                 /**< process next option */
+	APST_SHORT,                /**< process short option */
+	APST_LONG,                 /**< process long option */
+	APST_ARG,                  /**< process argument */
+	APST_END,                  /**< terminate argument parsing */
+	APST_ERROR_NON_OPT,        /**< error: non-option argument */
+	APST_ERROR_MISSING_ARG,    /**< error: missing required argument */
+	APST_ERROR_INVALID_OPT,    /**< error: invalid option */
+	APST_ERROR_AMBIGUOUS,      /**< error: ambiguous long option */
+	APST_ERROR_UNEXPECTED_ARG, /**< error: value attached to a long option that takes none */
+	APST_ERROR_NULL_PTR,       /**< error: null pointer */
 } tArgPState;
 
 

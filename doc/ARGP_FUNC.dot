@@ -2,14 +2,16 @@ digraph ARGP_FUNC {
 	# dashed lines indicate that the transition returns the value to the user
 	# "operand" denotes a non-option argument: [^-].* or a lone "-"
 	# default mode reorders operands behind the options (GNU getopt)
+	# a long option resolves to its exact name first, else to its only abbreviation
 	rankdir=LR;
+	ranksep=0.25;
 	graph [fontsize=11, fontname=helvetica];
 	node [style=filled, fillcolor=lightgray, fontsize=11, fontname=helvetica];
 	edge [fontsize=11, fontname=helvetica];
 	START -> NEXT [label="initialize"];
 	subgraph ERRORS {
 		node [fillcolor=hotpink];
-		ERR_NON_OPT ERR_NULL_PTR ERR_INVALID_OPT ERR_MISSING_ARG ERR_AMBIGUOUS;
+		ERR_NON_OPT ERR_NULL_PTR ERR_INVALID_OPT ERR_MISSING_ARG ERR_AMBIGUOUS ERR_UNEXPECTED_ARG;
 	}
 	START -> ERR_NULL_PTR [label="pointer == NULL"];
 	NEXT -> START [label="i < lastOpt", constraint=false];
@@ -21,21 +23,23 @@ digraph ARGP_FUNC {
 	NEXT -> SHORT [label=<-[^-].*<BR/><FONT COLOR="blue">AND </FONT>SHORT>];
 	NEXT -> LONG [label=<LONG <FONT COLOR="blue">AND </FONT>(--.* <FONT COLOR="blue">OR</FONT><BR/>(-[^-].* <FONT COLOR="blue">AND </FONT>!SHORT))>];
 	NEXT -> ERR_NON_OPT [label=<"--" <FONT COLOR="blue">AND</FONT><BR/>(POSIXLY_CORRECT <FONT COLOR="blue">OR </FONT>ARG_ONE)>];
+	NEXT -> ERR_INVALID_OPT [label=<(--.+ <FONT COLOR="blue">AND </FONT>!LONG) <FONT COLOR="blue">OR</FONT><BR/>(-[^-].* <FONT COLOR="blue">AND </FONT>!SHORT <FONT COLOR="blue">AND </FONT>!LONG)>];
 	ARG -> ERR_MISSING_ARG [label=<arg == NULL<BR/><FONT COLOR="blue">AND </FONT>required>];
 	ARG -> NEXT [label=<arg != NULL<BR/><FONT COLOR="blue">OR </FONT>optional>, style=dashed];
 	SHORT -> LONG [label=<LONG <FONT COLOR="blue">AND</FONT><BR/>-W <FONT COLOR="blue">AND </FONT>GNU_W>];
-	SHORT -> ARG [label="   ", taillabel=<optional<BR/><FONT COLOR="blue">OR </FONT>required>, labeldistance="5", labelangle="20"];
+	SHORT -> ARG [label=<optional<BR/><FONT COLOR="blue">OR </FONT>required>];
 	SHORT -> NEXT [label="no argument", style=dashed];
 	SHORT -> ERR_INVALID_OPT [label="undefined"];
-	LONG -> ARG [label="   ", taillabel=<optional<BR/><FONT COLOR="blue">OR </FONT>required>, labeldistance="7", labelangle="17"];
-	LONG -> NEXT [label="no argument", style=dashed];
+	LONG -> ARG [label=<optional<BR/><FONT COLOR="blue">OR </FONT>required>];
+	LONG -> NEXT [label=<no argument <FONT COLOR="blue">AND</FONT><BR/>no "=value">, style=dashed];
+	LONG -> ERR_UNEXPECTED_ARG [label=<no argument <FONT COLOR="blue">AND</FONT><BR/>"=value" attached>];
 	LONG -> ERR_INVALID_OPT [label="undefined"];
-	LONG -> ERR_AMBIGUOUS [label="same prefix\nfor >1 option"];
+	LONG -> ERR_AMBIGUOUS [label=<prefix of &gt;1 option<BR/><FONT COLOR="blue">AND </FONT>no exact name>];
 	ERR_NON_OPT -> END;
 	ERR_NULL_PTR -> END;
 	ERR_INVALID_OPT -> END;
 	ERR_MISSING_ARG -> END;
 	ERR_AMBIGUOUS -> END;
-	{ rank=same; SHORT LONG }
-	{ rank=same; ERR_NON_OPT ERR_NULL_PTR ERR_INVALID_OPT ERR_MISSING_ARG ERR_AMBIGUOUS }
+	ERR_UNEXPECTED_ARG -> END;
+	{ rank=same; ERR_NON_OPT ERR_NULL_PTR ERR_INVALID_OPT ERR_MISSING_ARG ERR_AMBIGUOUS ERR_UNEXPECTED_ARG }
 }

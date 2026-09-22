@@ -4,6 +4,16 @@ M.N.P
 | +---- minor: increased if command-line syntax/semantic breaking changes were applied
 +------ major: increased if elementary changes (from user's point of view) were made
 
+2.2.0 (2026-09-22)
+ - added: copies use shared extents on btrfs/XFS and server side copy on NFS if available (Linux)
+ - changed: faster reading of source directories (Linux)
+ - changed: fewer file opens per file, which speeds up backups behind an antivirus scanner (Windows)
+ - changed: system cache is only bypassed for files of 512 MiB and above (Windows)
+ - fixed: source or destination paths near the 260 character limit not copied (Windows)
+ - fixed: directories nested deeper than 215 levels could crash lsync, now skipped with error (exit 23)
+ - fixed: contents of directories whose name ends with a backslash not copied (Linux)
+ - fixed: value given to a long option that takes none (e.g. --times=yes) ignored, now an error
+
 2.1.0 (2026-06-28)
  - fixed: Windows created empty directories for directory symlinks instead of copying them as links
  - fixed: directory symlinks now handled consistently on Linux and Windows

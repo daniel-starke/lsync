@@ -2,7 +2,7 @@
  * @file lsync-linux.c
  * @author Daniel Starke
  * @date 2017-05-22
- * @version 2026-06-20
+ * @version 2026-09-22
  *
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -24,12 +24,31 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif /* __linux__ */
 #include "lsync.h"
 
 
 #ifdef UNICODE
 #error "Build configuration not supported. Please undefine UNICODE."
 #endif
+
+
+/**
+ * The kernel side copy is taken from the headers the build was made against. Headers
+ * older than Linux 4.5 do not define the call and the read/write loop is used alone.
+ */
+#if defined(__linux__) && defined(__NR_copy_file_range)
+#define HAS_COPY_RANGE 1
+
+
+/**
+ * Defines the number of bytes requested per kernel side copy call. The kernel caps a
+ * single request anyway and returns what it copied, so this only bounds the call count.
+ */
+#define COPY_RANGE_CHUNK 0x40000000
+#endif /* defined(__linux__) && defined(__NR_copy_file_range) */
 
 
 /**
@@ -300,10 +319,38 @@ onError:
 }
 
 
+#ifdef HAS_COPY_RANGE
+/**
+ * Copies the content left in `in` to `out` within the kernel, which never moves the data
+ * through this process. A file system that shares extents (e.g. btrfs or XFS) links them
+ * instead of copying them and NFS lets the server do the copy. The running kernel may be
+ * older than the headers and some combinations are refused (e.g. two file systems before
+ * Linux 5.3, or a file on procfs), which leaves the bytes it did not copy in front of
+ * both file offsets for the caller to copy.
+ *
+ * @param[in] in - source file descriptor
+ * @param[in] out - destination file descriptor
+ * @return 1 if the whole remaining content was copied, else 0
+ */
+static int copyInKernel(const int in, const int out) {
+	for (;;) {
+		/* the offsets are cast, since a variadic call passes `NULL` as it is written and
+		 * an implementation defining it as `0` would pass an int where a pointer is read */
+		const ssize_t done = (ssize_t)syscall(__NR_copy_file_range, in, (void *)NULL, out, (void *)NULL, (size_t)COPY_RANGE_CHUNK, (unsigned int)0);
+		if (done == 0) return 1; /* end of file */
+		if (done < 0) {
+			if (errno == EINTR) continue; /* interrupted by a signal -> retry */
+			return 0; /* unsupported here -> the caller copies the remainder */
+		}
+	}
+}
+#endif /* HAS_COPY_RANGE */
+
+
 /**
  * Copies the source file to the destination file. The destination needs to be a file path.
  * The function overwrites the destination file or hardlink.
- * 
+ *
  * @param[in] src - source file
  * @param[in] dst - destination file
  * @param[in] mask - copy mask
@@ -440,6 +487,11 @@ int copyFile(const TCHAR * src, const TCHAR * dst, const tCopyMask mask, const i
 		if (verbose > 0) printLastError(tmp, "fchmod():"TO_STR2(__LINE__));
 		goto onError;
 	}
+#ifdef HAS_COPY_RANGE
+	/* let the kernel copy where it can and copy what it left over here, so the loop
+	 * below stays the path for every system and file system the call does not serve */
+	copyInKernel(in, out);
+#endif /* HAS_COPY_RANGE */
 	for (;;) {
 		got = read(in, buffer, sizeof(buffer));
 		if (got < 0) {

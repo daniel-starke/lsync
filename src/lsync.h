@@ -2,7 +2,7 @@
  * @file lsync.h
  * @author Daniel Starke
  * @date 2017-05-17
- * @version 2026-06-28
+ * @version 2026-09-22
  *
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -30,7 +30,7 @@
 #include "dirstack.h"
 
 
-#define PROGRAM_VERSION _T("2.1.0 2026-06-28")
+#define PROGRAM_VERSION _T("2.2.0 2026-09-22")
 
 
 #define BUFFER_SIZE 32768

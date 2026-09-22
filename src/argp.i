@@ -4,7 +4,7 @@
  * @see argps.h
  * @see argpus.h
  * @date 2017-05-18
- * @version 2026-06-20
+ * @version 2026-09-14
  * @internal This file is never used or compiled directly but only included.
  * @remarks Define ARGP_UNICODE for the Unicode before including this file.
  * Defaults to ASCII.
@@ -42,7 +42,7 @@
  * @remarks Define ARGP_FUNC for name of the function.
  * @remarks Define ARGP_CTX for the context structure type.
  * @remarks Define ARGP_LOPT for the long option list element type.
- * @remarks errno is set to 0 if there was no error or to EFAULT or EINVAL on internal error.
+ * @remarks `errno` is set to 0 if there was no error or to EFAULT or EINVAL on internal error.
  * @see https://linux.die.net/man/3/getopt
  */
 
@@ -98,47 +98,44 @@ static const CHAR_T * matchPrefixStr(const CHAR_T * p, const CHAR_T * s) {
 }
 
 
-/** Returns the greatest common divisor of a and b. */
-static int argpGcd(int a, int b) {
-	while (b != 0) {
-		const int t = a % b;
-		a = b;
-		b = t;
-	}
-	return a;
-}
-
-
 /**
  * Swap block of non-option arguments with the following block of options.
+ * The two blocks are exchanged in place by rotating the range left by the
+ * non-option count. Each element is swapped into its final slot on first
+ * touch, the trailing gap being filled by the block that is not yet placed.
  *
  * @param[in,out] o - argument parser instance handle
  * @param[in] argv - argument list
  */
 static void argpExchange(ARGP_CTX * o, CHAR_T ** argv) {
-	const int lo = o->firstNonOpt; /* first element of the rotated range */
-	const int n = o->i - lo; /* number of elements to rotate */
-	const int shift = o->lastNonOpt - lo; /* rotate left by the non-option count */
-	int c, cycles = argpGcd(shift, n);
-	for (c = 0; c < cycles; c++) {
-		CHAR_T * carry = argv[lo + c];
-		int j = c;
-		for (;;) {
-			int k = j + shift;
-			if (k >= n) k -= n;
-			if (k == c) break;
-			argv[lo + j] = argv[lo + k];
-			j = k;
+	const int hi = o->i; /* end of the rotated range */
+	const int opts = o->i - o->lastNonOpt; /* number of options moved to the front */
+	int lo = o->firstNonOpt; /* next slot to fill */
+	int mid = o->lastNonOpt; /* start of the elements not placed yet */
+	int next = mid; /* next element to place */
+	if (lo >= mid || mid >= hi) return;
+	while (lo != next) {
+		CHAR_T * const carry = argv[lo];
+		argv[lo] = argv[next];
+		argv[next] = carry;
+		lo++;
+		next++;
+		if (next == hi) {
+			/* the shorter block wrapped around; continue with the remainder */
+			next = mid;
+		} else if (lo == mid) {
+			/* the leading block is placed; the remainder starts where it was left */
+			mid = next;
 		}
-		argv[lo + j] = carry;
 	}
-	o->firstNonOpt += o->i - o->lastNonOpt;
-	o->lastNonOpt = o->i;
+	o->firstNonOpt += opts;
+	o->lastNonOpt = hi;
 }
 
 
-/* goto propagates only downwards the code */
+/** @copydoc ARGP_FUNC() */
 int ARGP_FUNC(ARGP_CTX * o, int argc, CHAR_T * const * argv) {
+	/* goto propagates only downwards the code */
 	int found, result = -1;
 	int rescan = 0;
 	int argType = no_argument;
@@ -146,6 +143,7 @@ int ARGP_FUNC(ARGP_CTX * o, int argc, CHAR_T * const * argv) {
 	const CHAR_T * opt = NULL; /* only used for long options */
 	const CHAR_T * sopt = NULL;
 	const ARGP_LOPT * lopt = NULL;
+	const ARGP_LOPT * selOpt = NULL;
 	errno = 0;
 	/* check input arguments */
 	if (o == NULL || argv == NULL) goto onNullPtr;
@@ -192,8 +190,8 @@ int ARGP_FUNC(ARGP_CTX * o, int argc, CHAR_T * const * argv) {
 				for (; o->shortOpts[0] != 0; o->shortOpts++) {
 					switch (o->shortOpts[0]) {
 					case '+': o->flags = (tArgPFlag)(o->flags | ARGP_POSIXLY_CORRECT); break;
-					case '-': o->flags = (tArgPFlag)(o->flags | ARGP_ARG_ONE); break;
-					case ':': o->flags = (tArgPFlag)(o->flags | ARGP_FORWARD_ERRORS); break;
+					case '-': o->flags = (tArgPFlag)(o->flags | ARGP_ARG_ONE);         break;
+					case ':': o->flags = (tArgPFlag)(o->flags | ARGP_FORWARD_ERRORS);  break;
 					default: goto onEndOfShortFlags; break;
 					}
 				}
@@ -285,6 +283,11 @@ onEndOfShortFlags:;
 			break;
 		case APST_SHORT:
 			/* process a single short option */
+			if (o->next == NULL) {
+				/* inconsistent caller state (unreachable) */
+				o->state = APST_NEXT;
+				break;
+			}
 			if ((o->flags & ARGP_GNU_W) != 0 && o->next[0] == 'W') {
 				/* process GNU extension for long options */
 				if (o->next[1] == '=') {
@@ -372,26 +375,43 @@ onEndOfShortFlags:;
 			found = 0;
 			argType = no_argument;
 			sopt = NULL;
+			selOpt = NULL;
 			for (lopt = o->longOpts; lopt->name != NULL; lopt++) {
-				sopt = matchPrefixStr(opt, lopt->name);
-				if (sopt != NULL) {
-					o->opt = lopt->val;
-					o->longMatch = (int)(lopt - o->longOpts);
-					if (result != -1) {
-						found = -1;
-						break;
-					}
-					result = o->opt;
-					if (lopt->flag != NULL) {
-						*(lopt->flag) = 1;
-						result = 0;
-					}
-					argType = lopt->has_arg;
-					if (*sopt != 0 || sopt[-1] == '=') o->arg = sopt;
+				const CHAR_T * const end = matchPrefixStr(opt, lopt->name);
+				if (end == NULL) continue;
+				const size_t typed = (size_t)(end - opt) - ((end[-1] == '=') ? 1u : 0u);
+				if (TCHAR_STLEN(lopt->name) == typed) {
+					/* prefer exact name instead of longer name prefix */
+					selOpt = lopt;
+					sopt = end;
 					found = 1;
+					break;
+				}
+				/* second abbreviation is ambiguous unless an exact name follows */
+				if (selOpt == NULL) {
+					selOpt = lopt;
+					sopt = end;
+					found = 1;
+				} else {
+					found = -1;
 				}
 			}
-			if (found == 1) {
+			if (found == 1 && selOpt->has_arg == no_argument && sopt[-1] == '=') {
+				/* value attached to an option that takes none is rejected */
+				o->opt = selOpt->val;
+				o->lastOpt = o->i;
+				o->i++;
+				o->state = APST_ERROR_UNEXPECTED_ARG;
+			} else if (found == 1) {
+				o->opt = selOpt->val;
+				o->longMatch = (int)(selOpt - o->longOpts);
+				result = o->opt;
+				if (selOpt->flag != NULL) {
+					*(selOpt->flag) = 1;
+					result = 0;
+				}
+				argType = selOpt->has_arg;
+				if (*sopt != 0 || sopt[-1] == '=') o->arg = sopt;
 				if (argType == no_argument) {
 					o->lastOpt = o->i;
 					o->i++;
@@ -487,6 +507,13 @@ onEndOfShortFlags:;
 		o->i++;
 		if ((o->flags & ARGP_FORWARD_ERRORS) == 0) {
 			TCHAR_ERROR(_T("%") PRTCHAR _T(": option '%") PRTCHAR _T("' is ambiguous\n"), argv[0], argv[o->lastOpt]);
+		}
+		return '?';
+		break;
+	case APST_ERROR_UNEXPECTED_ARG:
+		o->arg = NULL;
+		if ((o->flags & ARGP_FORWARD_ERRORS) == 0) {
+			TCHAR_ERROR(_T("%") PRTCHAR _T(": option '%") PRTCHAR _T("' doesn't allow an argument\n"), argv[0], argv[o->lastOpt]);
 		}
 		return '?';
 		break;

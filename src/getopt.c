@@ -3,7 +3,7 @@
  * @author Daniel Starke
  * @see getopt.h
  * @date 2017-05-22
- * @version 2025-06-14
+ * @version 2026-09-19
  * 
  * DISCLAIMER
  * This file has no copyright assigned and is placed in the Public Domain.
@@ -25,9 +25,20 @@ int argps_optind = 1;
 int argps_opterr = 1;
 int argps_optopt = '?';
 char * argps_optarg = NULL;
-static tArgPS argps_ctx = { 0 };
+static tArgPS argps_ctx = {0};
 
 
+/**
+ * Generic internal `getopt` like command-line arguments parser.
+ *
+ * @param[in] argc - number of arguments in `argv`
+ * @param[in] argv - argument list to parse (elements may be reordered)
+ * @param[in] optstring - accepted short options
+ * @param[in] longopts - accepted long options or `NULL` if long options are disabled
+ * @param[out] longindex - receives the index of the matched long option within `longopts`
+ * or a negative value if no long option matched (may be `NULL`)
+ * @return result of `argps_parse()`
+ */
 static int argps_internalGetopt(int argc, char * const argv[], const char * optstring, const tArgPES * longopts, int * longindex) {
 	argps_ctx.i = argps_optind;
 	argps_ctx.shortOpts = optstring;
@@ -35,12 +46,22 @@ static int argps_internalGetopt(int argc, char * const argv[], const char * opts
 	const int result = argps_parse(&argps_ctx, argc, argv);
 	argps_optind = argps_ctx.i;
 	argps_optopt = argps_ctx.opt;
-	argps_optarg = (char *)argps_ctx.arg;
+	argps_optarg = (char *)(argps_ctx.arg);
 	if (longindex != NULL) *longindex = argps_ctx.longMatch;
 	return result;
 }
 
 
+/**
+ * `getopt` like short options command-line arguments parser.
+ *
+ * @param[in] argc - number of arguments in `argv`
+ * @param[in] argv - argument list to parse (elements may be reordered)
+ * @param[in] optstring - accepted option characters
+ * @return matched option character, `?` on an unrecognized option or a missing argument
+ * (`:` instead for a missing argument if errors are forwarded) or -1 at the end of the
+ * argument list
+ */
 int argps_getopt(int argc, char * const argv[], const char * optstring) {
 	argps_ctx.flags = (tArgPFlag)(
 		(size_t)(argps_ctx.flags | ARGP_SHORT | ARGP_GNU_SHORT | ((argps_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
@@ -50,12 +71,40 @@ int argps_getopt(int argc, char * const argv[], const char * optstring) {
 }
 
 
+/**
+ * `getopt_long` like short options command-line arguments parser.
+ *
+ * @param[in] argc - number of arguments in `argv`
+ * @param[in] argv - argument list to parse (elements may be reordered)
+ * @param[in] optstring - accepted short options as for `argps_getopt()`
+ * @param[in] longopts - accepted long options, terminated by an element with a `NULL` name
+ * @param[out] longindex - receives the index of the matched long option within `longopts`
+ * or a negative value if no long option matched (may be `NULL`)
+ * @return matched option character, 0 if the matched long option has a `flag` target
+ * (which is set to 1), `?` on an unrecognized, ambiguous or incomplete option or on a value
+ * attached to an option that takes none (`:` instead for a missing argument if errors are
+ * forwarded) or -1 at the end of the argument list
+ */
 int argps_getoptLong(int argc, char * const argv[], const char * optstring, const tArgPES * longopts, int * longindex) {
 	argps_ctx.flags = (tArgPFlag)(argps_ctx.flags | ARGP_SHORT | ARGP_LONG | ARGP_GNU_SHORT | ((argps_opterr == 0) ? ARGP_FORWARD_ERRORS : 0));
 	return argps_internalGetopt(argc, argv, optstring, longopts, longindex);
 }
 
 
+/**
+ * `getopt_long_only` like short options command-line arguments parser.
+ *
+ * @param[in] argc - number of arguments in `argv`
+ * @param[in] argv - argument list to parse (elements may be reordered)
+ * @param[in] optstring - only the leading `+`, `-` and `:` modifiers are evaluated
+ * @param[in] longopts - accepted long options, terminated by an element with a `NULL` name
+ * @param[out] longindex - receives the index of the matched long option within `longopts`
+ * or a negative value if no long option matched (may be `NULL`)
+ * @return matched option character, 0 if the matched long option has a `flag` target
+ * (which is set to 1), `?` on an unrecognized, ambiguous or incomplete option or on a value
+ * attached to an option that takes none (`:` instead for a missing argument if errors are
+ * forwarded) or -1 at the end of the argument list
+ */
 int argps_getoptLongOnly(int argc, char * const argv[], const char * optstring, const tArgPES * longopts, int * longindex) {
 	argps_ctx.flags = (tArgPFlag)(
 		(size_t)(argps_ctx.flags | ARGP_LONG | ((argps_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
@@ -69,9 +118,20 @@ int argpus_optind = 1;
 int argpus_opterr = 1;
 int argpus_optopt = '?';
 wchar_t * argpus_optarg = NULL;
-static tArgPUS argpus_ctx = { 0 };
+static tArgPUS argpus_ctx = {0};
 
 
+/**
+ * Generic internal `getopt` like command-line arguments parser.
+ *
+ * @param[in] argc - number of arguments in `argv`
+ * @param[in] argv - argument list to parse (elements may be reordered)
+ * @param[in] optstring - accepted short options
+ * @param[in] longopts - accepted long options or `NULL` if long options are disabled
+ * @param[out] longindex - receives the index of the matched long option within `longopts`
+ * or a negative value if no long option matched (may be `NULL`)
+ * @return result of `argpus_parse()`
+ */
 static int argpus_internalGetopt(int argc, wchar_t * const argv[], const wchar_t * optstring, const tArgPEUS * longopts, int * longindex) {
 	argpus_ctx.i = argpus_optind;
 	argpus_ctx.shortOpts = optstring;
@@ -79,12 +139,23 @@ static int argpus_internalGetopt(int argc, wchar_t * const argv[], const wchar_t
 	const int result = argpus_parse(&argpus_ctx, argc, argv);
 	argpus_optind = argpus_ctx.i;
 	argpus_optopt = argpus_ctx.opt;
-	argpus_optarg = (wchar_t *)argpus_ctx.arg;
+	argpus_optarg = (wchar_t *)(argpus_ctx.arg);
 	if (longindex != NULL) *longindex = argpus_ctx.longMatch;
 	return result;
 }
 
 
+/**
+ * `getopt` like short options command-line arguments parser.
+ *
+ * @param[in] argc - number of arguments in `argv`
+ * @param[in] argv - argument list to parse (elements may be reordered)
+ * @param[in] optstring - accepted option characters, each optionally followed by `:` for a
+ * required or `::` for an optional argument and optionally prefixed by `+`, `-` or `:`
+ * @return matched option character, `?` on an unrecognized option or a missing argument
+ * (`:` instead for a missing argument if errors are forwarded) or -1 at the end of the
+ * argument list
+ */
 int argpus_getopt(int argc, wchar_t * const argv[], const wchar_t * optstring) {
 	argpus_ctx.flags = (tArgPFlag)(
 		(size_t)(argpus_ctx.flags | ARGP_SHORT | ARGP_GNU_SHORT | ((argpus_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
@@ -94,12 +165,40 @@ int argpus_getopt(int argc, wchar_t * const argv[], const wchar_t * optstring) {
 }
 
 
+/**
+ * `getopt_long` like short options command-line arguments parser.
+ *
+ * @param[in] argc - number of arguments in `argv`
+ * @param[in] argv - argument list to parse (elements may be reordered)
+ * @param[in] optstring - accepted short options as for `argpus_getopt()`
+ * @param[in] longopts - accepted long options, terminated by an element with a `NULL` name
+ * @param[out] longindex - receives the index of the matched long option within `longopts`
+ * or a negative value if no long option matched (may be `NULL`)
+ * @return matched option character, 0 if the matched long option has a `flag` target
+ * (which is set to 1), `?` on an unrecognized, ambiguous or incomplete option or on a value
+ * attached to an option that takes none (`:` instead for a missing argument if errors are
+ * forwarded) or -1 at the end of the argument list
+ */
 int argpus_getoptLong(int argc, wchar_t * const argv[], const wchar_t * optstring, const tArgPEUS * longopts, int * longindex) {
 	argpus_ctx.flags = (tArgPFlag)(argpus_ctx.flags | ARGP_SHORT | ARGP_LONG | ARGP_GNU_SHORT | ((argpus_opterr == 0) ? ARGP_FORWARD_ERRORS : 0));
 	return argpus_internalGetopt(argc, argv, optstring, longopts, longindex);
 }
 
 
+/**
+ * `getopt_long_only` like short options command-line arguments parser.
+ *
+ * @param[in] argc - number of arguments in `argv`
+ * @param[in] argv - argument list to parse (elements may be reordered)
+ * @param[in] optstring - only the leading `+`, `-` and `:` modifiers are evaluated
+ * @param[in] longopts - accepted long options, terminated by an element with a `NULL` name
+ * @param[out] longindex - receives the index of the matched long option within `longopts`
+ * or a negative value if no long option matched (may be `NULL`)
+ * @return matched option character, 0 if the matched long option has a `flag` target
+ * (which is set to 1), `?` on an unrecognized, ambiguous or incomplete option or on a value
+ * attached to an option that takes none (`:` instead for a missing argument if errors are
+ * forwarded) or -1 at the end of the argument list
+ */
 int argpus_getoptLongOnly(int argc, wchar_t * const argv[], const wchar_t * optstring, const tArgPEUS * longopts, int * longindex) {
 	argpus_ctx.flags = (tArgPFlag)(
 		(size_t)(argpus_ctx.flags | ARGP_LONG | ((argpus_opterr == 0) ? ARGP_FORWARD_ERRORS : 0))
